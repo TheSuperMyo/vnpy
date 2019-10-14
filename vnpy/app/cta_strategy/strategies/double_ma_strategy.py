@@ -31,7 +31,9 @@ class DoubleMaStrategy(CtaTemplate):
             cta_engine, strategy_name, vt_symbol, setting
         )
 
+        # bg生成bar后调on_bar
         self.bg = BarGenerator(self.on_bar)
+        # am管理生成的bar
         self.am = ArrayManager()
 
     def on_init(self):
@@ -39,6 +41,7 @@ class DoubleMaStrategy(CtaTemplate):
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
+        # 注意，这里的10是10天的bar数据（周期为bg的周期）
         self.load_bar(10)
 
     def on_start(self):

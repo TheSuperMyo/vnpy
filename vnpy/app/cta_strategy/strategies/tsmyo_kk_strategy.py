@@ -10,40 +10,36 @@ from vnpy.app.cta_strategy import (
 )
 
 
-class BollChannelStrategy(CtaTemplate):
+class TsmyoKKStrategy(CtaTemplate):
     """"""
 
-    author = "用Python的交易员"
+    author = '用Python的交易员'
 
-    boll_window = 18
-    boll_dev = 3.4
-    cci_window = 10
-    atr_window = 30
-    sl_multiplier = 5.2
+    kk_length = 11
+    kk_dev = 1.6
+    trailing_percent = 0.8
     fixed_size = 1
 
-    boll_up = 0
-    boll_down = 0
-    cci_value = 0
-    atr_value = 0
-
+    kk_up = 0
+    kk_down = 0
+    kk_ma = 0
     intra_trade_high = 0
     intra_trade_low = 0
-    long_stop = 0
-    short_stop = 0
 
-    parameters = ["boll_window", "boll_dev", "cci_window",
-                  "atr_window", "sl_multiplier", "fixed_size"]
-    variables = ["boll_up", "boll_down", "cci_value", "atr_value",
-                 "intra_trade_high", "intra_trade_low", "long_stop", "short_stop"]
+    long_vt_orderids = []
+    short_vt_orderids = []
+    vt_orderids = []
+
+    parameters = ['kk_length', 'kk_dev', 'fixed_size']
+    variables = ['kk_up', 'kk_down']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(BollChannelStrategy, self).__init__(
+        super(TsmyoKKStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
-        # 使用15分钟k线，并注册15分钟bar更新的回调函数
-        self.bg = BarGenerator(self.on_bar, 15, self.on_15min_bar)
+
+        self.bg = BarGenerator(self.on_bar, 5, self.on_5min_bar)
         self.am = ArrayManager()
 
     def on_init(self):
@@ -77,45 +73,39 @@ class BollChannelStrategy(CtaTemplate):
         """
         self.bg.update_bar(bar)
 
-    def on_15min_bar(self, bar: BarData):
+    def on_5min_bar(self, bar: BarData):
         """"""
+        # 把所有委托单撤单
         self.cancel_all()
 
         am = self.am
         am.update_bar(bar)
-        # 这样am默认初始化就需要100个15分钟bar了
         if not am.inited:
             return
 
-        self.boll_up, self.boll_down = am.boll(self.boll_window, self.boll_dev)
-        self.cci_value = am.cci(self.cci_window)
-        self.atr_value = am.atr(self.atr_window)
+        self.kk_up, self.kk_down = am.keltner(self.kk_length, self.kk_dev)
+        self.kk_ma = am.sma(self.kk_length)
 
-        # 每个bar必定发单，空仓时根据CCI发一个布林上下轨的限价单
         if self.pos == 0:
             self.intra_trade_high = bar.high_price
             self.intra_trade_low = bar.low_price
+            # 同时挂上下轨停止单
+            self.long_vt_orderids = self.buy(self.kk_up, self.fixed_size, True)
+            self.short_vt_orderids = self.short(self.kk_down, self.fixed_size, True)
 
-            if self.cci_value > 0:
-                self.buy(self.boll_up, self.fixed_size, True)
-            elif self.cci_value < 0:
-                self.short(self.boll_down, self.fixed_size, True)
-
-        # 持多单时，根据持仓期间最高价，回撤sl_multiplier个ATR止损
-        # 发停止单（到达止损价后，立刻以当时的买卖5价挂单（原涨跌停改为5价），以最大可能保证止损成功）
         elif self.pos > 0:
             self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
             self.intra_trade_low = bar.low_price
 
-            self.long_stop = self.intra_trade_high - self.atr_value * self.sl_multiplier
-            self.sell(self.long_stop, abs(self.pos), True)
+            #self.sell(self.intra_trade_high * (1 - self.trailing_percent / 100), abs(self.pos),True)
+            self.sell(self.kk_ma, abs(self.pos), True)
 
         elif self.pos < 0:
             self.intra_trade_high = bar.high_price
             self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
 
-            self.short_stop = self.intra_trade_low + self.atr_value * self.sl_multiplier
-            self.cover(self.short_stop, abs(self.pos), True)
+            #self.cover(self.intra_trade_low * (1 + self.trailing_percent / 100), abs(self.pos),True)
+            self.cover(self.kk_ma, abs(self.pos), True)
 
         self.put_event()
 
@@ -125,11 +115,14 @@ class BollChannelStrategy(CtaTemplate):
         """
         pass
 
+    # 防止上下轨停止单同时触发
     def on_trade(self, trade: TradeData):
         """
         Callback of new trade data update.
         """
-        self.put_event()
+        #self.cancel_all()
+        #self.put_event()
+        pass
 
     def on_stop_order(self, stop_order: StopOrder):
         """

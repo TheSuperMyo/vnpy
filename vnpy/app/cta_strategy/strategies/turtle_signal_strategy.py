@@ -79,11 +79,12 @@ class TurtleSignalStrategy(CtaTemplate):
             return
 
         # Only calculates new entry channel when no position holding
+        # 唐奇安通道上下轨，入场窗口
         if not self.pos:
             self.entry_up, self.entry_down = self.am.donchian(
                 self.entry_window
             )
-
+        # 出场窗口
         self.exit_up, self.exit_down = self.am.donchian(self.exit_window)
 
         if not self.pos:
@@ -94,11 +95,13 @@ class TurtleSignalStrategy(CtaTemplate):
             self.long_stop = 0
             self.short_stop = 0
 
+            # 自己独特的挂单（海龟有加仓规则）
             self.send_buy_orders(self.entry_up)
             self.send_short_orders(self.entry_down)
         elif self.pos > 0:
             self.send_buy_orders(self.entry_up)
 
+            # 2ATR止损或者出场窗口期唐奇安通道突破
             sell_price = max(self.long_stop, self.exit_down)
             self.sell(sell_price, abs(self.pos), True)
 
@@ -114,6 +117,7 @@ class TurtleSignalStrategy(CtaTemplate):
         """
         Callback of new trade data update.
         """
+        # 成交后计算2ATR止损位置
         if trade.direction == Direction.LONG:
             self.long_entry = trade.price
             self.long_stop = self.long_entry - 2 * self.atr_value
@@ -133,6 +137,7 @@ class TurtleSignalStrategy(CtaTemplate):
         """
         pass
 
+    # 实现每0.5ATR加仓一个单位
     def send_buy_orders(self, price):
         """"""
         t = self.pos / self.fixed_size

@@ -79,15 +79,24 @@ class DualThrustStrategy(CtaTemplate):
         self.cancel_all()
 
         self.bars.append(bar)
+        
+        # 维护当前bar和上一个bar，共两根
         if len(self.bars) <= 2:
             return
         else:
             self.bars.pop(0)
         last_bar = self.bars[-2]
 
+        # last_bar是昨天的，也就是说bar是今天第一根
         if last_bar.datetime.date() != bar.datetime.date():
+            # 昨天有high/low的记录
             if self.day_high:
-                self.range = self.day_high - self.day_low
+                 # 计算Range，这里官方demo给的是昨日的最高价和最低价的差
+                 # 这并不是DT策略，而是一个普通的日内开盘价突破策略
+                 # 改一下这里，让其符合日内DT
+                 # MAX(HH-LC,HC-LL)|N=1
+                #self.range = self.day_high - self.day_low
+                self.range = max((self.day_high-last_bar.close_price),(last_bar.close_price-self.day_low))
                 self.long_entry = bar.open_price + self.k1 * self.range
                 self.short_entry = bar.open_price - self.k2 * self.range
 
@@ -97,13 +106,17 @@ class DualThrustStrategy(CtaTemplate):
 
             self.long_entered = False
             self.short_entered = False
+
+        # 不是换天的两根bar，记录当天的high/low
         else:
             self.day_high = max(self.day_high, bar.high_price)
             self.day_low = min(self.day_low, bar.low_price)
 
+        # 没有计算好的range，就返回
         if not self.range:
             return
 
+        # 在交易时间内（14：55之前）
         if bar.datetime.time() < self.exit_time:
             if self.pos == 0:
                 if bar.close_price > self.day_open:
@@ -111,12 +124,11 @@ class DualThrustStrategy(CtaTemplate):
                         self.buy(self.long_entry, self.fixed_size, stop=True)
                 else:
                     if not self.short_entered:
-                        self.short(self.short_entry,
-                                   self.fixed_size, stop=True)
+                        self.short(self.short_entry, self.fixed_size, stop=True)
 
             elif self.pos > 0:
                 self.long_entered = True
-
+                
                 self.sell(self.short_entry, self.fixed_size, stop=True)
 
                 if not self.short_entered:
@@ -124,17 +136,17 @@ class DualThrustStrategy(CtaTemplate):
 
             elif self.pos < 0:
                 self.short_entered = True
-
+                
                 self.cover(self.long_entry, self.fixed_size, stop=True)
 
                 if not self.long_entered:
                     self.buy(self.long_entry, self.fixed_size, stop=True)
-
+        # 日内交易，平仓
         else:
             if self.pos > 0:
-                self.sell(bar.close_price * 0.99, abs(self.pos))
+                self.sell(bar.close_price * 0.995, abs(self.pos))
             elif self.pos < 0:
-                self.cover(bar.close_price * 1.01, abs(self.pos))
+                self.cover(bar.close_price * 1.005, abs(self.pos))
 
         self.put_event()
 

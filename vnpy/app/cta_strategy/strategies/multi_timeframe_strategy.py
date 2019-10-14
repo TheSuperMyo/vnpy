@@ -19,6 +19,8 @@ class MultiTimeframeStrategy(CtaTemplate):
     fast_window = 5
     slow_window = 20
     fixed_size = 1
+    # 5min级bar下限价单时的加点，应该为最小变动价的整数倍
+    bar_add = 2
 
     rsi_value = 0
     rsi_long = 0
@@ -29,7 +31,7 @@ class MultiTimeframeStrategy(CtaTemplate):
 
     parameters = ["rsi_signal", "rsi_window",
                   "fast_window", "slow_window",
-                  "fixed_size"]
+                  "fixed_size","bar_add"]
 
     variables = ["rsi_value", "rsi_long", "rsi_short",
                  "fast_ma", "slow_ma", "ma_trend"]
@@ -43,6 +45,7 @@ class MultiTimeframeStrategy(CtaTemplate):
         self.rsi_long = 50 + self.rsi_signal
         self.rsi_short = 50 - self.rsi_signal
 
+        # 维护两组bg/am，对应不同时间周期
         self.bg5 = BarGenerator(self.on_bar, 5, self.on_5min_bar)
         self.am5 = ArrayManager()
 
@@ -83,12 +86,14 @@ class MultiTimeframeStrategy(CtaTemplate):
 
     def on_5min_bar(self, bar: BarData):
         """"""
+        
         self.cancel_all()
 
         self.am5.update_bar(bar)
         if not self.am5.inited:
             return
 
+        # 长周期趋势为短周期的过滤
         if not self.ma_trend:
             return
 
@@ -96,17 +101,17 @@ class MultiTimeframeStrategy(CtaTemplate):
 
         if self.pos == 0:
             if self.ma_trend > 0 and self.rsi_value >= self.rsi_long:
-                self.buy(bar.close_price + 5, self.fixed_size)
+                self.buy(bar.close_price + self.bar_add, self.fixed_size)
             elif self.ma_trend < 0 and self.rsi_value <= self.rsi_short:
-                self.short(bar.close_price - 5, self.fixed_size)
+                self.short(bar.close_price - self.bar_add, self.fixed_size)
 
         elif self.pos > 0:
             if self.ma_trend < 0 or self.rsi_value < 50:
-                self.sell(bar.close_price - 5, abs(self.pos))
+                self.sell(bar.close_price - self.bar_add, abs(self.pos))
 
         elif self.pos < 0:
             if self.ma_trend > 0 or self.rsi_value > 50:
-                self.cover(bar.close_price + 5, abs(self.pos))
+                self.cover(bar.close_price + self.bar_add, abs(self.pos))
 
         self.put_event()
 
@@ -119,6 +124,7 @@ class MultiTimeframeStrategy(CtaTemplate):
         self.fast_ma = self.am15.sma(self.fast_window)
         self.slow_ma = self.am15.sma(self.slow_window)
 
+        # 根据15min级的MA设置方向
         if self.fast_ma > self.slow_ma:
             self.ma_trend = 1
         else:

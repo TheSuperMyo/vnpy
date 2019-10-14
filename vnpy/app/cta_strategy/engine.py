@@ -37,7 +37,10 @@ from vnpy.trader.constant import (
 )
 from vnpy.trader.utility import load_json, save_json, extract_vt_symbol, round_to
 from vnpy.trader.database import database_manager
-from vnpy.trader.rqdata import rqdata_client
+# 使用多数据源，添加jqdata byTSMyo 20190926
+from vnpy.trader.mddata import mddata_client
+from vnpy.trader.setting import SETTINGS
+#from vnpy.trader.rqdata import rqdata_client
 from vnpy.trader.converter import OffsetConverter
 
 from .base import (
@@ -121,14 +124,14 @@ class CtaEngine(BaseEngine):
         self.event_engine.register(EVENT_TRADE, self.process_trade_event)
         self.event_engine.register(EVENT_POSITION, self.process_position_event)
 
-    def init_rqdata(self):
+    '''def init_rqdata(self):
         """
         Init RQData client.
         """
         result = rqdata_client.init()
         if result:
             self.write_log("RQData数据接口初始化成功")
-
+    
     def query_bar_from_rq(
         self, symbol: str, exchange: Exchange, interval: Interval, start: datetime, end: datetime
     ):
@@ -143,6 +146,39 @@ class CtaEngine(BaseEngine):
             end=end
         )
         data = rqdata_client.query_history(req)
+        return data
+'''
+    # 初始化 by TSMyo 20190926
+    def init_rqdata(self):
+        """
+        Init MDData client.
+        """
+        result = mddata_client.init()
+        md_data_api = SETTINGS["mddata.api"]
+        if result:
+            self.write_log(f"{md_data_api}数据接口初始化成功")
+    
+    # 数据获取 by TSMyo 20190926
+    def query_bar_from_rq(
+        self, symbol: str, exchange: Exchange, interval: Interval, start: datetime, end: datetime
+    ):
+        """
+        Query bar data from MDData.
+        """
+        req = HistoryRequest(
+            symbol=symbol,
+            exchange=exchange,
+            interval=interval,
+            start=start,
+            end=end
+        )
+
+        try:
+            data = mddata_client.query_history(req)
+        except Exception as ex:
+            self.write_log(f"{symbol}.{exchange.value}合约下载失败：{ex.args}")
+            return None
+
         return data
 
     def process_tick_event(self, event: Event):
@@ -246,6 +282,7 @@ class CtaEngine(BaseEngine):
                 # To get excuted immediately after stop order is
                 # triggered, use limit price if available, otherwise
                 # use ask_price_5 or bid_price_5
+                '''
                 if stop_order.direction == Direction.LONG:
                     if tick.limit_up:
                         price = tick.limit_up
@@ -256,8 +293,16 @@ class CtaEngine(BaseEngine):
                         price = tick.limit_down
                     else:
                         price = tick.bid_price_5
+                '''
 
                 contract = self.main_engine.get_contract(stop_order.vt_symbol)
+
+                # 对于不支持停止单的合约使用了本地停止单（到价格发一个限价单），但是。。。
+                # 本地停止单用涨跌停太刺激了，ctp又没提供5盘价改为1价2跳吧
+                if stop_order.direction == Direction.LONG:
+                    price = tick.ask_price_1 + 2*contract.pricetick
+                else:
+                    price = tick.bid_price_1 + 2*contract.pricetick
 
                 vt_orderids = self.send_limit_order(
                     strategy,

@@ -10,7 +10,10 @@ from vnpy.trader.engine import BaseEngine, MainEngine
 from vnpy.trader.constant import Interval
 from vnpy.trader.utility import extract_vt_symbol
 from vnpy.trader.object import HistoryRequest
-from vnpy.trader.rqdata import rqdata_client
+# 使用多数据源，添加jqdata byTSMyo 20190926
+from vnpy.trader.mddata import mddata_client
+from vnpy.trader.setting import SETTINGS
+#from vnpy.trader.rqdata import rqdata_client
 from vnpy.trader.database import database_manager
 from vnpy.app.cta_strategy import (
     CtaTemplate,
@@ -56,9 +59,11 @@ class BacktesterEngine(BaseEngine):
         self.backtesting_engine.output = self.write_log
 
         self.write_log("策略文件加载完成")
+        path2 = Path.cwd().joinpath("strategies")
 
         self.init_rqdata()
 
+    '''
     def init_rqdata(self):
         """
         Init RQData client.
@@ -66,6 +71,17 @@ class BacktesterEngine(BaseEngine):
         result = rqdata_client.init()
         if result:
             self.write_log("RQData数据接口初始化成功")
+    '''
+
+    # 初始化 by TSMyo 20190926
+    def init_rqdata(self):
+        """
+        Init MDData client.
+        """
+        result = mddata_client.init()
+        md_data_api = SETTINGS["mddata.api"]
+        if result:
+            self.write_log(f"{md_data_api}数据接口初始化成功")
 
     def write_log(self, msg: str):
         """"""
@@ -330,6 +346,7 @@ class BacktesterEngine(BaseEngine):
 
         return True
 
+    '''
     def run_downloading(
         self,
         vt_symbol: str,
@@ -363,6 +380,54 @@ class BacktesterEngine(BaseEngine):
             # Otherwise use RQData to query data
             else:
                 data = rqdata_client.query_history(req)
+
+            if data:
+                database_manager.save_bar_data(data)
+                self.write_log(f"{vt_symbol}-{interval}历史数据下载完成")
+            else:
+                self.write_log(f"数据下载失败，无法获取{vt_symbol}的历史数据")
+        except Exception:
+            msg = f"数据下载失败，触发异常：\n{traceback.format_exc()}"
+            self.write_log(msg)
+
+        # Clear thread object handler.
+        self.thread = None
+    '''
+
+    # 改动支持多数据源（jqdata） by TSMyo 20190926
+    def run_downloading(
+        self,
+        vt_symbol: str,
+        interval: str,
+        start: datetime,
+        end: datetime
+    ):
+        """
+        Query bar data from MDData.
+        """
+        self.write_log(f"{vt_symbol}-{interval}开始下载历史数据")
+
+        symbol, exchange = extract_vt_symbol(vt_symbol)
+
+        req = HistoryRequest(
+            symbol=symbol,
+            exchange=exchange,
+            interval=Interval(interval),
+            start=start,
+            end=end
+        )
+
+        contract = self.main_engine.get_contract(vt_symbol)
+
+        try:
+            # If history data provided in gateway, then query
+            if contract and contract.history_data:
+                data = self.main_engine.query_history(
+                    req, contract.gateway_name
+                )
+            # Otherwise use RQData to query data
+            else:
+                data = mddata_client.query_history(req)
 
             if data:
                 database_manager.save_bar_data(data)

@@ -69,14 +69,11 @@ EXCHANGE_VT2IB = {
 EXCHANGE_IB2VT = {v: k for k, v in EXCHANGE_VT2IB.items()}
 
 STATUS_IB2VT = {
-    "ApiPending": Status.SUBMITTING,
+    "Submitted": Status.NOTTRADED,
+    "Filled": Status.ALLTRADED,
+    "Cancelled": Status.CANCELLED,
     "PendingSubmit": Status.SUBMITTING,
     "PreSubmitted": Status.NOTTRADED,
-    "Submitted": Status.NOTTRADED,
-    "ApiCancelled": Status.CANCELLED,
-    "Cancelled": Status.CANCELLED,
-    "Filled": Status.ALLTRADED,
-    "Inactive": Status.REJECTED,
 }
 
 PRODUCT_VT2IB = {
@@ -361,12 +358,8 @@ class IbApi(EWrapper):
 
         orderid = str(orderId)
         order = self.orders.get(orderid, None)
+        order.status = STATUS_IB2VT[status]
         order.traded = filled
-
-        # To filter PendingCancel status
-        order_status = STATUS_IB2VT.get(status, None)
-        if order_status:
-            order.status = order_status
 
         self.gateway.on_order(copy(order))
 

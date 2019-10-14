@@ -8,6 +8,10 @@ from vnpy.app.cta_strategy import (
     BarGenerator,
     ArrayManager,
 )
+from vnpy.app.cta_strategy.base import EngineType
+
+
+from datetime import datetime
 
 
 class KingKeltnerStrategy(CtaTemplate):
@@ -29,7 +33,7 @@ class KingKeltnerStrategy(CtaTemplate):
     short_vt_orderids = []
     vt_orderids = []
 
-    parameters = ['kk_length', 'kk_dev', 'fixed_size']
+    parameters = ['kk_length', 'kk_dev', 'fixed_size','trailing_percent']
     variables = ['kk_up', 'kk_down']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -39,13 +43,19 @@ class KingKeltnerStrategy(CtaTemplate):
         )
 
         self.bg = BarGenerator(self.on_bar, 5, self.on_5min_bar)
-        self.am = ArrayManager()
+        self.am = ArrayManager(50)
+        self.long_vt_orderids = []
+        self.short_vt_orderids = []
+        self.vt_orderids = []
 
     def on_init(self):
         """
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
+        if self.get_engine_type() == EngineType.LIVE:
+            self.fo = open("C:\Study\MyDiary\VNPY_TSMyo_Log\VNPY_Log.txt", "a")
+            self.write_log("开启本地log记录文件")
         self.load_bar(10)
 
     def on_start(self):
@@ -59,6 +69,8 @@ class KingKeltnerStrategy(CtaTemplate):
         Callback when strategy is stopped.
         """
         self.write_log("策略停止")
+        if self.get_engine_type() == EngineType.LIVE and self.fo:
+            self.fo.close()
 
     def on_tick(self, tick: TickData):
         """
@@ -74,9 +86,13 @@ class KingKeltnerStrategy(CtaTemplate):
 
     def on_5min_bar(self, bar: BarData):
         """"""
+        # 把本地维护的所有委托单撤单
+        '''
         for orderid in self.vt_orderids:
             self.cancel_order(orderid)
         self.vt_orderids.clear()
+        '''
+        self.cancel_all()
 
         am = self.am
         am.update_bar(bar)
@@ -88,6 +104,8 @@ class KingKeltnerStrategy(CtaTemplate):
         if self.pos == 0:
             self.intra_trade_high = bar.high_price
             self.intra_trade_low = bar.low_price
+            # oco单，二选一触发，同时挂上下轨突破的停止单，一个触发另一个立刻取消
+            # 经常用于防止在bar中波动过大，上下轨同时触发
             self.send_oco_order(self.kk_up, self.kk_down, self.fixed_size)
 
         elif self.pos > 0:
@@ -95,16 +113,16 @@ class KingKeltnerStrategy(CtaTemplate):
             self.intra_trade_low = bar.low_price
 
             vt_orderids = self.sell(self.intra_trade_high * (1 - self.trailing_percent / 100),
-                                    abs(self.pos), True)
-            self.vt_orderids.extend(vt_orderids)
+                                    abs(self.pos),True)
+            #self.vt_orderids.extend(vt_orderids)
 
         elif self.pos < 0:
             self.intra_trade_high = bar.high_price
             self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
 
             vt_orderids = self.cover(self.intra_trade_low * (1 + self.trailing_percent / 100),
-                                     abs(self.pos), True)
-            self.vt_orderids.extend(vt_orderids)
+                                     abs(self.pos),True)
+            #self.vt_orderids.extend(vt_orderids)
 
         self.put_event()
 
@@ -112,12 +130,15 @@ class KingKeltnerStrategy(CtaTemplate):
         """
         Callback of new order data update.
         """
-        pass
+        if self.get_engine_type() == EngineType.LIVE and self.fo:
+            self.fo.write(str(datetime.now())+ '\t' + str(order)+'\n')
 
+    # 配合实现OCO挂单
     def on_trade(self, trade: TradeData):
         """
         Callback of new trade data update.
         """
+        '''
         if self.pos != 0:
             if self.pos > 0:
                 for short_orderid in self.short_vt_orderids:
@@ -130,16 +151,19 @@ class KingKeltnerStrategy(CtaTemplate):
             for orderid in (self.long_vt_orderids + self.short_vt_orderids):
                 if orderid in self.vt_orderids:
                     self.vt_orderids.remove(orderid)
-
-        self.put_event()
+        '''
+        #self.cancel_all()
+        #self.put_event()
+        if self.get_engine_type() == EngineType.LIVE and self.fo:
+            self.fo.write(str(datetime.now())+ '\t' + str(trade)+'\n')
 
     def send_oco_order(self, buy_price, short_price, volume):
         """"""
-        self.long_vt_orderids = self.buy(buy_price, volume, True)
-        self.short_vt_orderids = self.short(short_price, volume, True)
+        self.long_vt_orderids = self.buy(buy_price, volume,True)
+        self.short_vt_orderids = self.short(short_price, volume,True)
 
-        self.vt_orderids.extend(self.long_vt_orderids)
-        self.vt_orderids.extend(self.short_vt_orderids)
+        #self.vt_orderids.extend(self.long_vt_orderids)
+        #self.vt_orderids.extend(self.short_vt_orderids)
 
     def on_stop_order(self, stop_order: StopOrder):
         """

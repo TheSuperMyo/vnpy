@@ -87,16 +87,23 @@ class AtrRsiStrategy(CtaTemplate):
         self.atr_ma = atr_array[-self.atr_ma_length:].mean()
         self.rsi_value = am.rsi(self.rsi_length)
 
+        # 进出场逻辑
+
+        # 若当前未持仓，不断更新进出场high/low
+        # 并当波动变大，RSI上穿进场RSI时，进场
         if self.pos == 0:
             self.intra_trade_high = bar.high_price
             self.intra_trade_low = bar.low_price
 
             if self.atr_value > self.atr_ma:
                 if self.rsi_value > self.rsi_buy:
-                    self.buy(bar.close_price + 5, self.fixed_size)
+                    # 这个地方注意委托价格，不知道为什么是+5，可能是为保证成交，改为自定义的滑点比较合适
+                    self.buy(bar.close_price + 2, self.fixed_size)
                 elif self.rsi_value < self.rsi_sell:
-                    self.short(bar.close_price - 5, self.fixed_size)
+                    self.short(bar.close_price - 2, self.fixed_size)
 
+        # 当前持多仓，更新入场后的最高价
+        # 并根据跟踪止损程度，发平多停止单
         elif self.pos > 0:
             self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
             self.intra_trade_low = bar.low_price

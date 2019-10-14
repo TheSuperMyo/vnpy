@@ -25,6 +25,13 @@ SETTINGS = {
     "rqdata.username": "",
     "rqdata.password": "",
 
+    # 添加多方式数据获取（jqdata） by TSMyo 20190926
+    # 可选rqdata/jqdata
+    "mddata.api": "rqdata",
+
+    "jqdata.username": "",
+    "jqdata.password": "",
+
     "database.driver": "sqlite",  # see database.Driver
     "database.database": "database.db",  # for sqlite, use this as filepath
     "database.host": "localhost",

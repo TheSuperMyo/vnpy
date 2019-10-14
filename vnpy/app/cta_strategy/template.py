@@ -292,6 +292,7 @@ class CtaSignal(ABC):
 
 class TargetPosTemplate(CtaTemplate):
     """"""
+    # 在没有上一个tick时下单的滑点（实际值），该值应该为最小变动价格的整数倍
     tick_add = 1
 
     last_tick = None
@@ -342,6 +343,7 @@ class TargetPosTemplate(CtaTemplate):
         """"""
         self.cancel_all()
 
+        # 需不需要调仓
         pos_change = self.target_pos - self.pos
         if not pos_change:
             return
@@ -349,6 +351,7 @@ class TargetPosTemplate(CtaTemplate):
         long_price = 0
         short_price = 0
 
+        # 决定tick级挂单价格（有/无上一个tick两种方案）
         if self.last_tick:
             if pos_change > 0:
                 long_price = self.last_tick.ask_price_1 + self.tick_add
@@ -365,6 +368,7 @@ class TargetPosTemplate(CtaTemplate):
             else:
                 short_price = self.last_bar.close_price - self.tick_add
 
+        # 回测和实盘挂单
         if self.get_engine_type() == EngineType.BACKTESTING:
             if pos_change > 0:
                 vt_orderids = self.buy(long_price, abs(pos_change))
@@ -376,6 +380,8 @@ class TargetPosTemplate(CtaTemplate):
             if self.vt_orderids:
                 return
 
+            # 如果pos_change = 3 而现在只有1的空单
+            # 貌似是不会直接平空开多，而是在Tick1平1空，在Tick2如果还是change3，则开3多
             if pos_change > 0:
                 if self.pos < 0:
                     if pos_change < abs(self.pos):
