@@ -153,7 +153,7 @@ class KingKeltnerStrategy(CtaTemplate):
                     self.vt_orderids.remove(orderid)
         '''
         #self.cancel_all()
-        #self.put_event()
+        self.put_event()
         if self.get_engine_type() == EngineType.LIVE and self.fo:
             self.fo.write(str(datetime.now())+ '\t' + str(trade)+'\n')
 

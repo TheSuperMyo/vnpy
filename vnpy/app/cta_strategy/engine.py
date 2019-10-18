@@ -302,7 +302,7 @@ class CtaEngine(BaseEngine):
                 if stop_order.direction == Direction.LONG:
                     price = tick.ask_price_1 + 2*contract.pricetick
                 else:
-                    price = tick.bid_price_1 + 2*contract.pricetick
+                    price = tick.bid_price_1 - 2*contract.pricetick
 
                 vt_orderids = self.send_limit_order(
                     strategy,
