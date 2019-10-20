@@ -27,7 +27,7 @@ class TSMyoRBreakerStrategy(CtaTemplate):
 
     trailing_long = 0.4
     trailing_short = 0.4
-    multiplier = 3
+    multiplier = 1
 
     buy_break = 0   # 突破买入价
     sell_setup = 0  # 观察卖出价
@@ -49,7 +49,7 @@ class TSMyoRBreakerStrategy(CtaTemplate):
     night_time = time(hour=20,minute=10)
     day_time = time(hour=8,minute=10)
 
-    parameters = ["setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size", "donchian_window"]
+    parameters = ["setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size", "donchian_window", "multiplier"]
     variables = ["buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):

@@ -343,6 +343,13 @@ class ArrayManager(object):
         """
         return self.volume_array
 
+    @property
+    def percentLog(self):
+        """获取对数收益序列"""
+        arrayold = self.close_array[0:self.size - 1]
+        arraynew = self.close_array[1:self.size]
+        return np.log(arraynew/arrayold)*100.0
+
     def sma(self, n, array=False):
         """
         Simple moving average.
@@ -357,6 +364,15 @@ class ArrayManager(object):
         Standard deviation
         """
         result = talib.STDDEV(self.close, n)
+        if array:
+            return result
+        return result[-1]
+
+    def ma_rets_std(self, n, array=False):
+        """
+        Standard deviation of ma return
+        """
+        result = talib.STDDEV(np.log( self.close/self.sma(n,True) ), n)
         if array:
             return result
         return result[-1]
