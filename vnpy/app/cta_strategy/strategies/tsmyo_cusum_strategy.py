@@ -16,9 +16,9 @@ class TSMyoCusumStrategy(CtaTemplate):
     author = 'TheSuperMyo'
 
     cs_len = 30
-    cs_h_std = 5
+    cs_h_std = 5.0
     cs_k_std = 1 
-    trailing_percent = 0.618
+    stop_loss = 0.618
     fixed_size = 1
 
     cs_max = 0
@@ -29,9 +29,10 @@ class TSMyoCusumStrategy(CtaTemplate):
     logr = 0
     intra_trade_high = 0
     intra_trade_low = 0
+    intra_trade_open = 0
 
-    parameters = ['cs_len', 'cs_h_std','cs_k_std', 'fixed_size','trailing_percent']
-    variables = ['intra_trade_high','intra_trade_low','ma','logmastd']
+    parameters = ['cs_len', 'cs_h_std','cs_k_std', 'fixed_size','stop_loss']
+    variables = ['intra_trade_high','intra_trade_low']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
@@ -91,8 +92,8 @@ class TSMyoCusumStrategy(CtaTemplate):
         elif self.pos > 0:
             self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
             self.intra_trade_low = bar.low_price
-            # 跟踪止损（可选）
-            #self.sell(self.intra_trade_high * (1 - self.trailing_percent / 100),abs(self.pos),True)
+            # 止损（可选）
+            self.sell(self.intra_trade_open * (1 - self.stop_loss / 100),abs(self.pos),True)
             # 出现向下变点，平多仓
             if self.trigger == -1:
                 self.sell(bar.close_price,abs(self.pos))
@@ -103,8 +104,8 @@ class TSMyoCusumStrategy(CtaTemplate):
             self.intra_trade_high = bar.high_price
             self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
 
-            # 跟踪止损（可选）
-            #self.cover(self.intra_trade_low * (1 + self.trailing_percent / 100),abs(self.pos),True)
+            # 止损（可选）
+            self.cover(self.intra_trade_open * (1 + self.stop_loss / 100),abs(self.pos),True)
             # 出现向上变点，平空仓
             if self.trigger == 1:
                 self.cover(bar.close_price,abs(self.pos))
@@ -145,6 +146,8 @@ class TSMyoCusumStrategy(CtaTemplate):
         """
         # 成交后将变点复位
         self.trigger == 0
+        if trade.offset == "开":
+            self.intra_trade_open = trade.price
         self.put_event()
 
     def on_order(self, order: OrderData):
