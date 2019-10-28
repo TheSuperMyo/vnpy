@@ -53,9 +53,9 @@ class KingKeltnerStrategy(CtaTemplate):
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
-        if self.get_engine_type() == EngineType.LIVE:
-            self.fo = open("C:\Study\MyDiary\VNPY_TSMyo_Log\VNPY_Log.txt", "a")
-            self.write_log("开启本地log记录文件")
+        #if self.get_engine_type() == EngineType.LIVE:
+            #self.fo = open("C:\Study\MyDiary\VNPY_TSMyo_Log\VNPY_Log.txt", "a")
+            #self.write_log("开启本地log记录文件")
         self.load_bar(10)
 
     def on_start(self):
@@ -69,8 +69,8 @@ class KingKeltnerStrategy(CtaTemplate):
         Callback when strategy is stopped.
         """
         self.write_log("策略停止")
-        if self.get_engine_type() == EngineType.LIVE and self.fo:
-            self.fo.close()
+        #if self.get_engine_type() == EngineType.LIVE and self.fo:
+            #self.fo.close()
 
     def on_tick(self, tick: TickData):
         """
@@ -130,8 +130,8 @@ class KingKeltnerStrategy(CtaTemplate):
         """
         Callback of new order data update.
         """
-        if self.get_engine_type() == EngineType.LIVE and self.fo:
-            self.fo.write(str(datetime.now())+ '\t' + str(order)+'\n')
+        #if self.get_engine_type() == EngineType.LIVE and self.fo:
+            #self.fo.write(str(datetime.now())+ '\t' + str(order)+'\n')
 
     # 配合实现OCO挂单
     def on_trade(self, trade: TradeData):
@@ -154,8 +154,8 @@ class KingKeltnerStrategy(CtaTemplate):
         '''
         #self.cancel_all()
         self.put_event()
-        if self.get_engine_type() == EngineType.LIVE and self.fo:
-            self.fo.write(str(datetime.now())+ '\t' + str(trade)+'\n')
+        #if self.get_engine_type() == EngineType.LIVE and self.fo:
+            #self.fo.write(str(datetime.now())+ '\t' + str(trade)+'\n')
 
     def send_oco_order(self, buy_price, short_price, volume):
         """"""
