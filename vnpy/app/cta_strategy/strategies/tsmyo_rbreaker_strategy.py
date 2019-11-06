@@ -141,34 +141,34 @@ class TSMyoRBreakerStrategy(CtaTemplate):
                 if self.tend_high > self.sell_setup:
                     # 添加过滤，突破价不低于最高价，才进场
                     long_entry = max(self.buy_break, self.day_high)
-                    self.buy(long_entry, self.fixed_size, stop=True)
+                    self.buy(long_entry, self.fixed_size, stop=True, lock=True)
 
                     # 反转系统进场，手数可以和趋势系统做区分
-                    self.short(self.sell_enter, self.multiplier * self.fixed_size, stop=True)
+                    self.short(self.sell_enter, self.multiplier * self.fixed_size, stop=True, lock=True)
                     
                 elif self.tend_low < self.buy_setup:
                     short_entry = min(self.sell_break, self.day_low)
-                    self.short(short_entry, self.fixed_size, stop=True)
+                    self.short(short_entry, self.fixed_size, stop=True, lock=True)
 
-                    self.buy(self.buy_enter, self.multiplier * self.fixed_size, stop=True)
+                    self.buy(self.buy_enter, self.multiplier * self.fixed_size, stop=True, lock=True)
                     
             elif self.pos > 0:
                 # 跟踪止损出场
                 self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
                 long_stop = self.intra_trade_high * (1 - self.trailing_long / 100)
-                self.sell(long_stop, abs(self.pos), stop=True)
+                self.sell(long_stop, abs(self.pos), stop=True, lock=True)
 
             elif self.pos < 0:
                 self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
                 short_stop = self.intra_trade_low * (1 + self.trailing_short / 100)
-                self.cover(short_stop, abs(self.pos), stop=True)
+                self.cover(short_stop, abs(self.pos), stop=True, lock=True)
         
         # 日内策略，最后10分钟不断尝试平仓
         else:
             if self.pos > 0:
-                self.sell(bar.close_price, abs(self.pos))
+                self.sell(bar.close_price, abs(self.pos), lock=True)
             elif self.pos < 0:
-                self.cover(bar.close_price, abs(self.pos))
+                self.cover(bar.close_price, abs(self.pos), lock=True)
                 
         self.put_event()
 
