@@ -41,16 +41,17 @@ class TSMyoRBreakerStrategy(CtaTemplate):
 
     day_high = 0
     day_low = 0
+    day_close = 0
     tend_high = 0
     tend_low = 0
 
     exit_time = time(hour=14, minute=50)
     # 针对不同交易时间的品种
-    night_time = time(hour=20,minute=10)
-    day_time = time(hour=8,minute=10)
+    #night_time = time(hour=20,minute=10)
+    #day_time = time(hour=8,minute=10)
 
     parameters = ["setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size", "donchian_window", "multiplier"]
-    variables = ["buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
+    variables = ["day_close","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
@@ -107,11 +108,12 @@ class TSMyoRBreakerStrategy(CtaTemplate):
 
         # 判断开盘bar，先使用split判别有夜盘品种开盘
         # last_bar是昨天的，也就是说bar是今天第一根
-        if ((last_bar.datetime.time()<self.night_time) and (bar.datetime.time()>self.night_time)) or ((last_bar.datetime.date() != bar.datetime.date()) and (bar.datetime.time()>self.day_time)):
+        #if ((last_bar.datetime.time()<self.night_time) and (bar.datetime.time()>self.night_time)) or ((last_bar.datetime.date() != bar.datetime.date()) and (bar.datetime.time()>self.day_time)):
+        if ( last_bar.datetime.date() != bar.datetime.date() ):
             if self.day_high:
 
-                self.buy_setup = self.day_low - self.setup_coef * (self.day_high - last_bar.close_price)  # 观察买入价
-                self.sell_setup = self.day_high + self.setup_coef * (last_bar.close_price - self.day_low)# 观察卖出
+                self.buy_setup = self.day_low - self.setup_coef * (self.day_high - self.day_close)  # 观察买入价
+                self.sell_setup = self.day_high + self.setup_coef * (self.day_close - self.day_low)# 观察卖出
         
                 self.buy_enter = (self.enter_coef_1 / 2) * (self.day_high + self.day_low) - self.enter_coef_2 * self.day_high  # 反转买入价
                 self.sell_enter = (self.enter_coef_1 / 2) * (self.day_high + self.day_low) - self.enter_coef_2 * self.day_low  # 反转卖出价
@@ -119,13 +121,19 @@ class TSMyoRBreakerStrategy(CtaTemplate):
                 self.buy_break = self.sell_setup + self.break_coef * (self.sell_setup - self.buy_setup)  # 突破买入价
                 self.sell_break = self.buy_setup - self.break_coef * (self.sell_setup - self.buy_setup)  # 突破卖出价
         
+            #if bar.datetime.date() != '2019-11-13':
+            self.write_log( f"{bar.datetime.date()}开盘使用数据：" )
+            self.write_log( f"昨收：{self.day_close}，昨高：{self.day_high}，昨低：{self.day_low}" )
             self.day_high = bar.high_price
             self.day_low = bar.low_price
+            self.day_close = bar.close_price
             
-        # 盘中记录当日HL，为第二天计算做准备
+        # 盘中记录当日HLC，为第二天计算做准备
         else:
+            #if bar.datetime.date() != '2019-11-13':
             self.day_high = max(self.day_high, bar.high_price)
             self.day_low = min(self.day_low, bar.low_price)
+            self.day_close = bar.close_price
 
         if not self.sell_setup:
             return
@@ -133,7 +141,8 @@ class TSMyoRBreakerStrategy(CtaTemplate):
         # N分钟内最高价和最低价
         self.tend_high, self.tend_low = am.donchian(self.donchian_window)
 
-        if (bar.datetime.time() < self.exit_time) or ( bar.datetime.time() > self.night_time ):
+        #if (bar.datetime.time() < self.exit_time) or ( bar.datetime.time() > self.night_time ):
+        if (bar.datetime.time() < self.exit_time):
             if self.pos == 0:
                 self.intra_trade_low = bar.low_price
                 self.intra_trade_high = bar.high_price
