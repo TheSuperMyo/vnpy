@@ -4,6 +4,7 @@ import traceback
 from datetime import datetime
 from threading import Thread
 from pathlib import Path
+from inspect import getfile
 
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
@@ -48,8 +49,6 @@ class BacktesterEngine(BaseEngine):
         # Optimization result
         self.result_values = None
 
-        self.load_strategy_class()
-
     def init_engine(self):
         """"""
         self.write_log("初始化CTA回测引擎")
@@ -58,6 +57,7 @@ class BacktesterEngine(BaseEngine):
         # Redirect log from backtesting engine outside.
         self.backtesting_engine.output = self.write_log
 
+        self.load_strategy_class()
         self.write_log("策略文件加载完成")
         path2 = Path.cwd().joinpath("strategies")
 
@@ -107,14 +107,16 @@ class BacktesterEngine(BaseEngine):
         """
         for dirpath, dirnames, filenames in os.walk(path):
             for filename in filenames:
+                # Load python source code file
                 if filename.endswith(".py"):
                     strategy_module_name = ".".join(
                         [module_name, filename.replace(".py", "")])
+                    self.load_strategy_class_from_module(strategy_module_name)
+                # Load compiled pyd binary file
                 elif filename.endswith(".pyd"):
                     strategy_module_name = ".".join(
                         [module_name, filename.split(".")[0]])
-
-                self.load_strategy_class_from_module(strategy_module_name)
+                    self.load_strategy_class_from_module(strategy_module_name)
 
     def load_strategy_class_from_module(self, module_name: str):
         """
@@ -130,6 +132,12 @@ class BacktesterEngine(BaseEngine):
         except:  # noqa
             msg = f"策略文件{module_name}加载失败，触发异常：\n{traceback.format_exc()}"
             self.write_log(msg)
+
+    def reload_strategy_class(self):
+        """"""
+        self.classes.clear()
+        self.load_strategy_class()
+        self.write_log("策略文件重载刷新完成")
 
     def get_strategy_class_names(self):
         """"""
@@ -147,6 +155,7 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
+        inverse: bool,
         setting: dict
     ):
         """"""
@@ -165,7 +174,8 @@ class BacktesterEngine(BaseEngine):
             slippage=slippage,
             size=size,
             pricetick=pricetick,
-            capital=capital
+            capital=capital,
+            inverse=inverse
         )
 
         strategy_class = self.classes[class_name]
@@ -198,6 +208,7 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
+        inverse: bool,
         setting: dict
     ):
         if self.thread:
@@ -218,6 +229,7 @@ class BacktesterEngine(BaseEngine):
                 size,
                 pricetick,
                 capital,
+                inverse,
                 setting
             )
         )
@@ -254,6 +266,7 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
+        inverse: bool,
         optimization_setting: OptimizationSetting,
         use_ga: bool
     ):
@@ -277,7 +290,8 @@ class BacktesterEngine(BaseEngine):
             slippage=slippage,
             size=size,
             pricetick=pricetick,
-            capital=capital
+            capital=capital,
+            inverse=inverse
         )
 
         strategy_class = self.classes[class_name]
@@ -317,6 +331,7 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
+        inverse: bool,
         optimization_setting: OptimizationSetting,
         use_ga: bool
     ):
@@ -338,6 +353,7 @@ class BacktesterEngine(BaseEngine):
                 size,
                 pricetick,
                 capital,
+                inverse,
                 optimization_setting,
                 use_ga
             )
@@ -481,3 +497,9 @@ class BacktesterEngine(BaseEngine):
     def get_history_data(self):
         """"""
         return self.backtesting_engine.history_data
+
+    def get_strategy_class_file(self, class_name: str):
+        """"""
+        strategy_class = self.classes[class_name]
+        file_path = getfile(strategy_class)
+        return file_path
