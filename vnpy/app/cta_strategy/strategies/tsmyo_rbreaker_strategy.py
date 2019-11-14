@@ -51,7 +51,8 @@ class TSMyoRBreakerStrategy(CtaTemplate):
     #day_time = time(hour=8,minute=10)
 
     parameters = ["setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size", "donchian_window", "multiplier"]
-    variables = ["day_close","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
+    variables = ["tend_low","tend_high","day_close","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
+    #variables = ["tend_low","tend_high","day_close","day_high","day_low"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
@@ -124,9 +125,13 @@ class TSMyoRBreakerStrategy(CtaTemplate):
             #if bar.datetime.date() != '2019-11-13':
             self.write_log( f"{bar.datetime.date()}开盘使用数据：" )
             self.write_log( f"昨收：{self.day_close}，昨高：{self.day_high}，昨低：{self.day_low}" )
+            self.write_log( f"计算得出：" )
+            self.write_log( f"上中轨：{self.sell_setup}，下中轨：{self.buy_setup}" )
             self.day_high = bar.high_price
             self.day_low = bar.low_price
             self.day_close = bar.close_price
+            self.write_log( f"开盘bar：" )
+            self.write_log( f"收：{self.day_close}，高：{self.day_high}，低：{self.day_low}" )
             
         # 盘中记录当日HLC，为第二天计算做准备
         else:
@@ -179,7 +184,10 @@ class TSMyoRBreakerStrategy(CtaTemplate):
             elif self.pos < 0:
                 self.cover(bar.close_price, abs(self.pos), lock=True)
                 
+                
+        #self.write_log( f"上中轨：{self.sell_setup}，下中轨：{self.buy_setup}" )
         self.put_event()
+        
 
 
     def on_order(self, order: OrderData):
