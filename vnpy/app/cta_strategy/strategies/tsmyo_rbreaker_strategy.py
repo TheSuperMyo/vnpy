@@ -12,7 +12,7 @@ from vnpy.app.cta_strategy import (
 
 
 
-class TSMyoRBreakerStrategy(CtaTemplate):
+class TSMyoRBreakerTickStrategy(CtaTemplate):
     """"""
 
     author = "TheSuperMyo"
@@ -59,7 +59,7 @@ class TSMyoRBreakerStrategy(CtaTemplate):
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(TSMyoRBreakerStrategy, self).__init__(
+        super(TSMyoRBreakerTickStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.bg = BarGenerator(self.on_bar)
