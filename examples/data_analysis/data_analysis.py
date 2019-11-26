@@ -110,6 +110,7 @@ class DataAnalysis:
         self.orignal["close"] = c
         self.orignal["volume"] = v
         self.orignal.index = t
+        #self.orignal["time"] = t
 
     def base_analysis(self, df: DataFrame = None):
         """"""
@@ -123,7 +124,9 @@ class DataAnalysis:
 
         output("第一步:画出行情图，检查数据断点")
 
-        close_price.plot(figsize=(20, 8), title="close_price")
+        #close_price.plot(figsize=(20, 8), title="close_price")
+        plt.figure(figsize=(20,8))
+        plt.plot(range(0,len(close_price)),close_price)
         plt.show()
 
         random_test(close_price)
@@ -152,7 +155,9 @@ class DataAnalysis:
         df["fixed_cost"] = df["close"] * self.rate
         df["relative_vol"] = df["volatility"] - df["fixed_cost"]
 
-        df["relative_vol"].plot(figsize=(20, 6), title="relative volatility")
+        #df["relative_vol"].plot(figsize=(20, 6), title="relative volatility")
+        plt.figure(figsize=(20,6))
+        plt.plot(range(0,len(df["relative_vol"])),df["relative_vol"])
         plt.show()
 
         df["relative_vol"].hist(bins=200, figsize=(20, 6), grid=False)
@@ -168,7 +173,10 @@ class DataAnalysis:
         df["pre_close"] = df["close"].shift(1).fillna(0)
         df["g%"] = 100 * (df["close"] - df["pre_close"]) / df["close"]
 
-        df["g%"].plot(figsize=(20, 6), title="growth", ylim=(-5, 5))
+        #df["g%"].plot(figsize=(20, 6), title="growth", ylim=(-5, 5))
+        plt.figure(figsize=(20,6))
+        plt.ylim(-5,5)
+        plt.plot(range(0,len(df["g%"])),df["g%"])
         plt.show()
 
         df["g%"].hist(bins=200, figsize=(20, 6), grid=False)
@@ -255,6 +263,7 @@ class DataAnalysis:
             data["low"] = df["low"].resample(interval, how="min")
             data["close"] = df["close"].resample(interval, how="last")
             data["volume"] = df["volume"].resample(interval, how="sum")
+            data.dropna()
 
             result = self.base_analysis(data)
             self.results[interval] = result
@@ -276,13 +285,13 @@ class DataAnalysis:
 
         plt.figure(figsize=(20, 8))
         close = data["close"]
-        plt.plot(close, lw=1)
-        plt.plot(close, '^', markersize=5, color='r',
+        plt.plot(range(0,len(close)),close, lw=1)
+        plt.plot(range(0,len(close)),close, '^', markersize=5, color='r',
                  label='UP signal', markevery=up_signal)
-        plt.plot(close, 'v', markersize=5, color='g',
+        plt.plot(range(0,len(close)),close, 'v', markersize=5, color='g',
                  label='DOWN signal', markevery=down_signal)
-        plt.plot(data["boll_up"], lw=0.5, color="r")
-        plt.plot(data["boll_down"], lw=0.5, color="g")
+        plt.plot(range(0,len(data["boll_up"])),data["boll_up"], lw=0.5, color="r")
+        plt.plot(range(0,len(data["boll_down"])),data["boll_down"], lw=0.5, color="g")
         plt.legend()
         plt.show()
 
