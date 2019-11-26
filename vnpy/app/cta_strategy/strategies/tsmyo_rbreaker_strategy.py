@@ -54,7 +54,7 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
     #day_time = time(hour=8,minute=10)
 
     parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size", "donchian_window", "multiplier"]
-    variables = ["tend_low","tend_high","day_close","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
+    variables = ["tend_low","tend_high","tick_flag","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
     #variables = ["tend_low","tend_high","day_close","day_high","day_low"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -98,26 +98,34 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
                 # 添加过滤，突破价不低于最高价，才进场
                 long_entry = max(self.buy_break, self.day_high)
                 if tick.ask_price_1 > long_entry:
+                    self.write_log(f"当前卖一价{tick.ask_price_1}大于{long_entry}")
                     orderids = self.buy(long_entry, self.fixed_size, stop=False, lock=True)
                     if orderids:
                         self.active_orderids.extend(orderids)
+                        self.write_log(f"上上：在{long_entry}位置挂单成功，添加{orderids}到活跃订单")
                 if tick.bid_price_1 < self.sell_enter:
                     # 反转系统进场，手数可以和趋势系统做区分
+                    self.write_log(f"当前买一价{tick.bid_price_1}小于{self.sell_enter}")
                     orderids = self.short(self.sell_enter, self.multiplier * self.fixed_size, stop=False, lock=True)
                     if orderids:
                         self.active_orderids.extend(orderids)
+                        self.write_log(f"上下：在{self.sell_enter}位置挂单成功，添加{orderids}到活跃订单")
         
             #下中轨条件触发
             if self.tick_flag == -1:
                 short_entry = min(self.sell_break, self.day_low)
                 if tick.bid_price_1 < short_entry:
+                    self.write_log(f"当前买一价{tick.bid_price_1}小于{short_entry}")
                     orderids = self.short(short_entry, self.fixed_size, stop=False, lock=True)
                     if orderids:
                         self.active_orderids.extend(orderids)
+                        self.write_log(f"下下：在{short_entry}位置挂单成功，添加{orderids}到活跃订单")
                 if tick.ask_price_1 > self.buy_enter:
+                    self.write_log(f"当前卖一价{tick.ask_price_1}大于{self.buy_enter}")
                     orderids = self.buy(self.buy_enter, self.multiplier * self.fixed_size, stop=False, lock=True)
                     if orderids:
                         self.active_orderids.extend(orderids)
+                        self.write_log(f"下上：在{self.buy_enter}位置挂单成功，添加{orderids}到活跃订单")
                 
 
     def on_bar(self, bar: BarData):
@@ -222,6 +230,7 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
         #没有活跃订单撤掉active_orderids的委托ID
         if not order.is_active() and order.vt_orderid in self.active_orderids:
             self.active_orderids.remove(order.vt_orderid)
+            self.write_log( f"将{order.vt_orderid}移除活跃订单" )
 
     def on_trade(self, trade: TradeData):
         """
