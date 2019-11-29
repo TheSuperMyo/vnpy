@@ -204,7 +204,9 @@ class CtaTemplate(ABC):
         Cancel all orders sent by strategy.
         """
         if self.trading:
-            self.cta_engine.cancel_all(self)
+            any_not_find = self.cta_engine.cancel_all(self)
+            
+        return any_not_find
 
     def write_log(self, msg: str):
         """

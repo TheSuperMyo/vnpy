@@ -190,15 +190,18 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
             if not self.pos: 
                 self.intra_trade_low = bar.low_price
                 self.intra_trade_high = bar.high_price
+                self.tick_flag = 0
                 # N分钟内最高价在sell_setup之上
                 if self.tend_high > self.sell_setup:
 
                     #上中轨条件
+                    self.write_log( f"上中轨建立{self.tend_high}大于{self.sell_setup}" )
                     self.tick_flag = 1
 
                 elif self.tend_low < self.buy_setup:
 
                     #下中轨条件
+                    self.write_log( f"下中轨建立{self.tend_low}小于{self.buy_setup}" )
                     self.tick_flag = -1
                     
             elif self.pos > 0:

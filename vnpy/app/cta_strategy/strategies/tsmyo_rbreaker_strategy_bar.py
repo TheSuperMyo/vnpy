@@ -92,7 +92,11 @@ class TSMyoRBreakerStrategy(CtaTemplate):
         """
         Callback of new bar data update.
         """
-        self.cancel_all()
+        # 如果撤单过程中出现在OMSEngine找不到订单
+        # 则可能是挂单的EVENT_ORDER还未处理，跳过该此次执行
+        any_not_find = self.cancel_all()
+        if any_not_find == 1:
+            return
 
         am = self.am
         am.update_bar(bar)

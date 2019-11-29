@@ -475,10 +475,11 @@ class CtaEngine(BaseEngine):
         order = self.main_engine.get_order(vt_orderid)
         if not order:
             self.write_log(f"撤单失败，找不到委托{vt_orderid}", strategy)
-            return
+            return 1
 
         req = order.create_cancel_request()
         self.main_engine.cancel_order(req, order.gateway_name)
+        return 0
 
     def cancel_local_stop_order(self, strategy: CtaTemplate, stop_orderid: str):
         """
@@ -486,7 +487,7 @@ class CtaEngine(BaseEngine):
         """
         stop_order = self.stop_orders.get(stop_orderid, None)
         if not stop_order:
-            return
+            return 0
         strategy = self.strategies[stop_order.strategy_name]
 
         # Remove from relation map.
@@ -501,6 +502,7 @@ class CtaEngine(BaseEngine):
 
         self.call_strategy_func(strategy, strategy.on_stop_order, stop_order)
         self.put_stop_order_event(stop_order)
+        return 0
 
     def send_order(
         self,
@@ -535,20 +537,26 @@ class CtaEngine(BaseEngine):
         """
         """
         if vt_orderid.startswith(STOPORDER_PREFIX):
-            self.cancel_local_stop_order(strategy, vt_orderid)
+           not_find = self.cancel_local_stop_order(strategy, vt_orderid)
         else:
-            self.cancel_server_order(strategy, vt_orderid)
+           not_find = self.cancel_server_order(strategy, vt_orderid)
+        return not_find
 
     def cancel_all(self, strategy: CtaTemplate):
         """
         Cancel all active orders of a strategy.
         """
+        any_not_find = 0 # OMS找不到委托标志
         vt_orderids = self.strategy_orderid_map[strategy.strategy_name]
         if not vt_orderids:
-            return
+            return any_not_find
 
         for vt_orderid in copy(vt_orderids):
-            self.cancel_order(strategy, vt_orderid)
+            not_find = self.cancel_order(strategy, vt_orderid)
+            if not_find == 1:
+                any_not_find = 1
+
+        return any_not_find
 
     def get_engine_type(self):
         """"""
