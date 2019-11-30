@@ -536,6 +536,7 @@ class CtaEngine(BaseEngine):
     def cancel_order(self, strategy: CtaTemplate, vt_orderid: str):
         """
         """
+        not_find = 0
         if vt_orderid.startswith(STOPORDER_PREFIX):
            not_find = self.cancel_local_stop_order(strategy, vt_orderid)
         else:

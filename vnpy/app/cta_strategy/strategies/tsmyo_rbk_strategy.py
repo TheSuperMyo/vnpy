@@ -107,6 +107,7 @@ class TSMyoRBKStrategy(CtaTemplate):
         """
         # 如果撤单过程中出现在OMSEngine找不到订单
         # 则可能是挂单的EVENT_ORDER还未处理，跳过该此次执行
+        any_not_find = 0
         any_not_find = self.cancel_all()
         if any_not_find == 1:
             self.write_log("出现撤单找不到问题，跳过此次执行")
