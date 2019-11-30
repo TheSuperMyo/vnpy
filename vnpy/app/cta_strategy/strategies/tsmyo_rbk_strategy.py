@@ -8,7 +8,14 @@ from vnpy.app.cta_strategy import (
     OrderData,
     BarGenerator,
     ArrayManager,
-    StopOrderStatus
+)
+from vnpy.app.cta_strategy.base import (
+    BacktestingMode,
+    EngineType,
+    STOPORDER_PREFIX,
+    StopOrder,
+    StopOrderStatus,
+    INTERVAL_DELTA_MAP
 )
 
 
