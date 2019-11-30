@@ -7,13 +7,18 @@ from vnpy.app.cta_strategy import (
     TradeData,
     OrderData,
     BarGenerator,
-    ArrayManager
+    ArrayManager,
+    StopOrderStatus
 )
 
 
 
-class TSMyoRBreakerTickStrategy(CtaTemplate):
-    """"""
+class TSMyoRBKStrategy(CtaTemplate):
+    """
+    针对本地停止单触发的撤单失败导致重复挂单
+        1.给cancel_all()返回值，去标记是否出现 OmsEngine中找不到 的情况，做相应处理
+        2.策略自身维护一个订单列表，使用 on_stop_order/on_order 去同步cta_engine的 策略—订单列表map ，做相应判断
+    """
 
     author = "TheSuperMyo"
 
@@ -44,9 +49,6 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
     day_close = 0
     tend_high = 0
     tend_low = 0
-    
-    #开仓不使用停止单
-    tick_flag = 0
 
     exit_time = time(hour=14, minute=54)
     # 针对不同交易时间的品种
@@ -54,18 +56,18 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
     #day_time = time(hour=8,minute=10)
 
     parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size", "donchian_window", "multiplier"]
-    variables = ["tend_low","tend_high","tick_flag","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
+    variables = ["tend_low","tend_high","day_close","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
     #variables = ["tend_low","tend_high","day_close","day_high","day_low"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(TSMyoRBreakerTickStrategy, self).__init__(
+        super(TSMyoRBKStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.bg = BarGenerator(self.on_bar)
         self.am = ArrayManager()
         self.bars = []
-        self.active_orderids = []       #活跃委托ID列表，防止重复下单
+        self.vt_orderids = []
 
     def on_init(self):
         """
@@ -91,48 +93,17 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
         Callback of new tick data update.
         """
         self.bg.update_tick(tick)
-        # 无仓位无等待成交单才能开仓
-        if not self.pos and not self.active_orderids: 
-            #上中轨条件触发
-            if self.tick_flag == 1:
-                # 添加过滤，突破价不低于最高价，才进场
-                long_entry = max(self.buy_break, self.day_high)
-                if tick.ask_price_1 > long_entry:
-                    self.write_log(f"当前卖一价{tick.ask_price_1}大于{long_entry}")
-                    orderids = self.buy(long_entry, self.fixed_size, stop=False, lock=True)
-                    if orderids:
-                        self.active_orderids.extend(orderids)
-                        self.write_log(f"上上：在{long_entry}位置挂单成功，添加{orderids}到活跃订单")
-                if tick.bid_price_1 < self.sell_enter:
-                    # 反转系统进场，手数可以和趋势系统做区分
-                    self.write_log(f"当前买一价{tick.bid_price_1}小于{self.sell_enter}")
-                    orderids = self.short(self.sell_enter, self.multiplier * self.fixed_size, stop=False, lock=True)
-                    if orderids:
-                        self.active_orderids.extend(orderids)
-                        self.write_log(f"上下：在{self.sell_enter}位置挂单成功，添加{orderids}到活跃订单")
-        
-            #下中轨条件触发
-            if self.tick_flag == -1:
-                short_entry = min(self.sell_break, self.day_low)
-                if tick.bid_price_1 < short_entry:
-                    self.write_log(f"当前买一价{tick.bid_price_1}小于{short_entry}")
-                    orderids = self.short(short_entry, self.fixed_size, stop=False, lock=True)
-                    if orderids:
-                        self.active_orderids.extend(orderids)
-                        self.write_log(f"下下：在{short_entry}位置挂单成功，添加{orderids}到活跃订单")
-                if tick.ask_price_1 > self.buy_enter:
-                    self.write_log(f"当前卖一价{tick.ask_price_1}大于{self.buy_enter}")
-                    orderids = self.buy(self.buy_enter, self.multiplier * self.fixed_size, stop=False, lock=True)
-                    if orderids:
-                        self.active_orderids.extend(orderids)
-                        self.write_log(f"下上：在{self.buy_enter}位置挂单成功，添加{orderids}到活跃订单")
-                
 
     def on_bar(self, bar: BarData):
         """
         Callback of new bar data update.
         """
-        self.cancel_all()
+        # 如果撤单过程中出现在OMSEngine找不到订单
+        # 则可能是挂单的EVENT_ORDER还未处理，跳过该此次执行
+        any_not_find = self.cancel_all()
+        if any_not_find == 1:
+            self.write_log("出现撤单找不到问题，跳过此次执行")
+            return
 
         am = self.am
         am.update_bar(bar)
@@ -171,6 +142,7 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
             self.day_low = bar.low_price
             self.day_close = bar.close_price
             
+            
         # 盘中记录当日HLC，为第二天计算做准备
         else:
             #if bar.datetime.date() != '2019-11-13':
@@ -186,41 +158,68 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
 
         #if (bar.datetime.time() < self.exit_time) or ( bar.datetime.time() > self.night_time ):
         if (bar.datetime.time() < self.exit_time):
-            #防止重复下单
-            if not self.pos: 
+            if self.pos == 0:
                 self.intra_trade_low = bar.low_price
                 self.intra_trade_high = bar.high_price
-                self.tick_flag = 0
                 # N分钟内最高价在sell_setup之上
                 if self.tend_high > self.sell_setup:
+                    # 添加过滤，突破价不低于最高价，才进场
+                    long_entry = max(self.buy_break, self.day_high)
+                    # 检查策略是否还有订单留存
+                    if self.vt_orderids:
+                        self.write_log("撤单不干净，无法挂单")
+                        return
+                    orderids = self.buy(long_entry, self.fixed_size, stop=True, lock=True)
+                    self.vt_orderids.extend(orderids)
 
-                    #上中轨条件
-                    self.write_log( f"上中轨建立{self.tend_high}大于{self.sell_setup}" )
-                    self.tick_flag = 1
+                    # 反转系统进场，手数可以和趋势系统做区分
+                    orderids = self.short(self.sell_enter, self.multiplier * self.fixed_size, stop=True, lock=True)
+                    self.vt_orderids.extend(orderids)
 
                 elif self.tend_low < self.buy_setup:
+                    short_entry = min(self.sell_break, self.day_low)
+                    if self.vt_orderids:
+                        self.write_log("撤单不干净，无法挂单")
+                        return
+                    orderids = self.short(short_entry, self.fixed_size, stop=True, lock=True)
+                    self.vt_orderids.extend(orderids)
+                    orderids = self.buy(self.buy_enter, self.multiplier * self.fixed_size, stop=True, lock=True)
+                    self.vt_orderids.extend(orderids)
 
-                    #下中轨条件
-                    self.write_log( f"下中轨建立{self.tend_low}小于{self.buy_setup}" )
-                    self.tick_flag = -1
-                    
             elif self.pos > 0:
                 # 跟踪止损出场
                 self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
                 long_stop = self.intra_trade_high * (1 - self.trailing_long / 100)
-                self.sell(long_stop, abs(self.pos), stop=True, lock=True)
+                if self.vt_orderids:
+                    self.write_log("撤单不干净，无法挂单")
+                    return
+                orderids = self.sell(long_stop, abs(self.pos), stop=True, lock=True)
+                self.vt_orderids.extend(orderids)
 
             elif self.pos < 0:
                 self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
                 short_stop = self.intra_trade_low * (1 + self.trailing_short / 100)
-                self.cover(short_stop, abs(self.pos), stop=True, lock=True)
+                if self.vt_orderids:
+                    self.write_log("撤单不干净，无法挂单")
+                    return
+                orderids = self.cover(short_stop, abs(self.pos), stop=True, lock=True)
+                self.vt_orderids.extend(orderids)
         
         # 日内策略，最后6分钟不断尝试平仓
         else:
             if self.pos > 0:
-                self.sell(bar.close_price, abs(self.pos), lock=True)
+                if self.vt_orderids:
+                    self.write_log("撤单不干净，无法挂单")
+                    return
+                orderids = self.sell(bar.close_price, abs(self.pos), lock=True)
+                self.vt_orderids.extend(orderids)
+
             elif self.pos < 0:
-                self.cover(bar.close_price, abs(self.pos), lock=True)
+                if self.vt_orderids:
+                    self.write_log("撤单不干净，无法挂单")
+                    return
+                orderids = self.cover(bar.close_price, abs(self.pos), lock=True)
+                self.vt_orderids.extend(orderids)
                 
         self.put_event()
         
@@ -230,10 +229,9 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
         """
         Callback of new order data update.
         """
-        #没有活跃订单撤掉active_orderids的委托ID
-        if not order.is_active() and order.vt_orderid in self.active_orderids:
-            self.active_orderids.remove(order.vt_orderid)
-            self.write_log( f"将{order.vt_orderid}移除活跃订单" )
+        # 移除成交或撤销的订单
+        if not order.is_active() and order.vt_orderid in self.vt_orderids:
+            self.vt_orderids.remove(order.vt_orderid)
 
     def on_trade(self, trade: TradeData):
         """
@@ -245,4 +243,16 @@ class TSMyoRBreakerTickStrategy(CtaTemplate):
         """
         Callback of stop order update.
         """
-        pass
+        # 根据状态处理
+        # 刚刚生成的本地停止单
+        if stop_order.status == StopOrderStatus.WAITING:
+            return
+        # 撤销的本地停止单，从列表移除
+        if stop_order.status == StopOrderStatus.CANCELLED:
+            if  stop_order.stop_orderid in self.vt_orderids:
+                self.vt_orderids.remove(stop_order.stop_orderid)
+        # 触发的本地停止单，停止单移除，限价单加入
+        if stop_order.status == StopOrderStatus.TRIGGERED:
+            if  stop_order.stop_orderid in self.vt_orderids:
+                self.vt_orderids.remove(stop_order.stop_orderid)
+                self.vt_orderids.extend(stop_order.vt_orderids)
