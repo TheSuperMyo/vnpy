@@ -179,7 +179,9 @@ class DataAnalysis:
         plt.plot(range(0,len(df["g%"])),df["g%"])
         plt.show()
 
-        df["g%"].hist(bins=200, figsize=(20, 6), grid=False)
+        df["g%"].hist(bins=2000, figsize=(20, 6), grid=False)
+        plt.xlim(-10,10)
+        
         plt.show()
 
         statitstic_info(df["g%"])
@@ -258,12 +260,13 @@ class DataAnalysis:
             output(f"合成{interval}周期K先并开始数据分析")
 
             data = pd.DataFrame()
-            data["open"] = df["open"].resample(interval, how="first")
-            data["high"] = df["high"].resample(interval, how="max")
-            data["low"] = df["low"].resample(interval, how="min")
-            data["close"] = df["close"].resample(interval, how="last")
-            data["volume"] = df["volume"].resample(interval, how="sum")
-            data.dropna()
+            data["open"] = df["open"].resample(interval, label='right', how="first")
+            data["high"] = df["high"].resample(interval, label='right',how="max")
+            data["low"] = df["low"].resample(interval, label='right',how="min")
+            data["close"] = df["close"].resample(interval, label='right',how="last")
+            data["volume"] = df["volume"].resample(interval, label='right',how="sum")
+            data = data[data.close.notnull()]
+            data.reset_index(inplace=True)
 
             result = self.base_analysis(data)
             self.results[interval] = result
@@ -295,9 +298,16 @@ class DataAnalysis:
         plt.legend()
         plt.show()
 
-        data["ATR"].plot(figsize=(20, 3), title="ATR")
-        plt.show()
 
+    def show_index(self, data, index_list: list = None):
+        """
+        plot 
+        """
+        for i in index_list:
+            value = data[i]
+            plt.figure(figsize=(20,8))
+            plt.plot(range(0,len(value)),value)
+            plt.show()
 
 def random_test(close_price):
     """"""
