@@ -245,6 +245,7 @@ class TSMyoRBKStrategy(CtaTemplate):
         """
         Callback of new trade data update.
         """
+        self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
         self.put_event()
 
     def on_stop_order(self, stop_order: StopOrder):
@@ -264,3 +265,7 @@ class TSMyoRBKStrategy(CtaTemplate):
             if  stop_order.stop_orderid in self.vt_orderids:
                 self.vt_orderids.remove(stop_order.stop_orderid)
                 self.vt_orderids.extend(stop_order.vt_orderids)
+            # 撤掉其他停止单
+            for other_stop_orderids in self.vt_orderids:
+                if other_stop_orderids.startswith(STOPORDER_PREFIX):
+                    self.cancel_order(other_stop_orderids)
