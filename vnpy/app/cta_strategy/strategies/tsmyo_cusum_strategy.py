@@ -6,9 +6,13 @@ from vnpy.app.cta_strategy import (
     TradeData,
     OrderData,
     BarGenerator,
-    ArrayManager,
+    ArrayManager
 )
-import numpy as np
+from TSMtools import(
+    TSMArrayManager,
+    TSMBarGenerator
+)
+
 
 class TSMyoCusumStrategy(CtaTemplate):
     """"""
@@ -18,20 +22,19 @@ class TSMyoCusumStrategy(CtaTemplate):
     cs_len = 30
     cs_h_std = 5.0
     cs_k_std = 1 
-    stop_loss = 0.618
+    trailing_stop = 0.618
     fixed_size = 1
 
-    cs_max = 0
-    cs_min = 0
-    ma = []
-    ma_rets_std = []
+    cs_up = 0
+    cs_down = 0
     trigger = 0
     logr = 0
+    logr_std = 0
+    logr_mean = 0
     intra_trade_high = 0
     intra_trade_low = 0
-    intra_trade_open = 0
 
-    parameters = ['cs_len', 'cs_h_std','cs_k_std', 'fixed_size','stop_loss']
+    parameters = ['cs_len', 'cs_h_std','cs_k_std', 'fixed_size','trailing_stop']
     variables = ['intra_trade_high','intra_trade_low']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -41,9 +44,7 @@ class TSMyoCusumStrategy(CtaTemplate):
         )
 
         self.bg = BarGenerator(self.on_bar, 5, self.on_5min_bar)
-        self.am = ArrayManager()
-        self.ma = []
-        self.ma_rets_std = []
+        self.am = TSMArrayManager()
 
     def on_init(self):
         """
@@ -79,7 +80,7 @@ class TSMyoCusumStrategy(CtaTemplate):
         self.cancel_all()
 
         if self.pos == 0 :
-            # 最近的5分周期出现向上变点
+            # 最近过去的前5分周期出现向上变点
             if self.trigger == 1:
                 self.buy(bar.close_price, self.fixed_size)
             
@@ -92,11 +93,11 @@ class TSMyoCusumStrategy(CtaTemplate):
         elif self.pos > 0:
             self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
             self.intra_trade_low = bar.low_price
-            # 止损（可选）
-            self.sell(self.intra_trade_open * (1 - self.stop_loss / 100),abs(self.pos),True)
+            # 跟踪止损（可选）
+            self.sell(self.intra_trade_high * (1 - self.trailing_stop / 100), abs(self.pos), stop=True)
             # 出现向下变点，平多仓
             if self.trigger == -1:
-                self.sell(bar.close_price,abs(self.pos))
+                self.sell(bar.close_price, abs(self.pos))
                 # 直接反手（可选）
                 #self.short(bar.close_price, self.fixed_size)
 
@@ -105,10 +106,10 @@ class TSMyoCusumStrategy(CtaTemplate):
             self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
 
             # 止损（可选）
-            self.cover(self.intra_trade_open * (1 + self.stop_loss / 100),abs(self.pos),True)
+            self.cover(self.intra_trade_low * (1 + self.trailing_stop / 100), abs(self.pos), stop=True)
             # 出现向上变点，平空仓
             if self.trigger == 1:
-                self.cover(bar.close_price,abs(self.pos))
+                self.cover(bar.close_price, abs(self.pos))
                 # 直接反手（可选）
                 #self.buy(bar.close_price, self.fixed_size)
 
@@ -123,20 +124,24 @@ class TSMyoCusumStrategy(CtaTemplate):
         if not am.inited:
             return
 
-        self.ma = am.sma(self.cs_len,True)
-        self.ma_rets_std = am.ma_rets_std(self.cs_len,True)
-        self.logr = np.log(bar.close_price/self.ma[-2])
+        # 每五分钟复位变点，重新计算
+        self.trigger = 0
+        # 最新的对数收益率，对数收益率均值和标准差
+        self.logr = am.log_return()
+        self.logr_mean = am.log_return_sma(self.cs_len)
+        self.logr_std = am.log_return_std(self.cs_len)
 
-        self.cs_max += max(self.logr - self.cs_k_std*self.ma_rets_std[-2], 0)
-        self.cs_min += min(self.logr + self.cs_k_std*self.ma_rets_std[-2], 0)
+        # 对数收益率的累计偏差（允偏值范围外）
+        self.cs_up += max(self.logr - self.logr_mean - self.cs_k_std*self.logr_std, 0)
+        self.cs_down += min(self.logr - self.logr_mean + self.cs_k_std*self.logr_std, 0)
 
-        if self.cs_max > self.cs_h_std*self.ma_rets_std[-2]:
+        if self.cs_up > self.cs_h_std*self.logr_std:
             self.trigger = 1
-            self.cs_max = 0
+            self.cs_up = 0
 
-        elif abs(self.cs_min) > self.cs_h_std*self.ma_rets_std[-2]:
+        elif abs(self.cs_down) > self.cs_h_std*self.logr_std:
             self.trigger = -1
-            self.cs_min = 0
+            self.cs_down = 0
 
         self.put_event()
 
@@ -144,10 +149,7 @@ class TSMyoCusumStrategy(CtaTemplate):
         """
         Callback of new trade data update.
         """
-        # 成交后将变点复位
-        self.trigger == 0
-        if trade.offset == "开":
-            self.intra_trade_open = trade.price
+        self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
         self.put_event()
 
     def on_order(self, order: OrderData):
