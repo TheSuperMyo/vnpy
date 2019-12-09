@@ -8,7 +8,7 @@ from vnpy.app.cta_strategy import (
     BarGenerator,
     ArrayManager
 )
-from TSMtools import(
+from vnpy.app.cta_strategy.TSMtools import(
     TSMArrayManager,
     TSMBarGenerator
 )

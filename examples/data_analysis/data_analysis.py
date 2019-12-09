@@ -135,6 +135,7 @@ class DataAnalysis:
 
         self.relative_volatility_analysis(df)
         self.growth_analysis(df)
+        self.trend_analysis(df)
 
         self.calculate_index(df)
 
@@ -179,7 +180,7 @@ class DataAnalysis:
         plt.plot(range(0,len(df["g%"])),df["g%"])
         plt.show()
 
-        df["g%"].hist(bins=2000, figsize=(20, 6), grid=False)
+        df["g%"].hist(bins=1000, figsize=(20, 6), grid=False)
         plt.xlim(-10,10)
         
         plt.show()
@@ -298,6 +299,28 @@ class DataAnalysis:
         plt.legend()
         plt.show()
 
+    def trend_analysis(self, df: DataFrame = None):
+        """
+        ER位移路程比
+        """
+        output("ER位移路程比")
+        df["pre_close"] = df["close"].shift(1).fillna(0)
+        df["x"] = abs(df["close"] - df["close"].shift(self.window_index).fillna(0))
+        df["m1"] = abs(df["close"] - df["pre_close"])
+
+        df["cumsum"] = np.cumsum(df["m1"])
+        df["pre_cumsum"] = df["cumsum"].shift(self.window_index).fillna(0)
+        df["s"] = df["cumsum"]-df["pre_cumsum"]
+
+        #print(df["s"].head(10))
+        df["ER"] = df["x"]/df["s"]
+        #print(df["ER"].tail(10))
+
+        plt.figure(figsize=(20,6))
+        plt.plot(range(0,len(df["ER"])),df["ER"])
+        plt.show()
+
+        statitstic_info(df["ER"])
 
     def show_index(self, data, index_list: list = None):
         """
