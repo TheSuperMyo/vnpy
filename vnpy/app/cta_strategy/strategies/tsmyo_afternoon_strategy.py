@@ -50,12 +50,14 @@ class TSMyoAfternoonStrategy(CtaTemplate):
     signal = 0
 
     # 一般
-    fixed_size = 0
+    fixed_size = 1
     intra_trade_high = 0
     intra_trade_low = 0
     trailing_stop = 0.4
+    atr_ma_len = 4
+    atr_window = 8
 
-    parameters = ['range_wide','fixed_size']
+    parameters = ['range_wide','atr_ma_len','atr_window','fixed_size']
     variables = ['bn_high','bn_low','an_r','an_s','signal']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -64,7 +66,7 @@ class TSMyoAfternoonStrategy(CtaTemplate):
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.bg15 = BarGenerator(self.on_bar, 15, self.on_15min_bar)
-        self.am = TSMArrayManager()
+        self.am = TSMArrayManager(50)
         # 策略自身订单管理
         self.active_orderids = []
         self.bars = []
@@ -125,11 +127,6 @@ class TSMyoAfternoonStrategy(CtaTemplate):
 
         self.cancel_all()
 
-        am = self.am
-        am.update_bar(bar)
-        if not am.inited:
-            return
-
         self.bars.append(bar)
         if len(self.bars) <= 2:
             return
@@ -149,7 +146,7 @@ class TSMyoAfternoonStrategy(CtaTemplate):
                 self.bn_low = min(self.bn_low, bar.low_price)
         
         # 午后开盘
-        if bar.datetime.time()>self.break_time_end_2 and last_bar.datetime.time()<self.break_time_end_2:
+        if not (bar.datetime.time()<self.break_time_end_2) and last_bar.datetime.time()<self.break_time_end_2:
             # 计算R/S价位
             if self.bn_low:
                 self.an_r = self.bn_high - self.range_wide * (self.bn_high - self.bn_low)
@@ -158,16 +155,55 @@ class TSMyoAfternoonStrategy(CtaTemplate):
 
         # 午后挂单
         if bar.datetime.time()>self.break_time_end_2 and bar.datetime.time()<self.exit_time:
-            if self.signal == 1:
-                if self.pos == 0:
+            if self.pos == 0:
+                self.intra_trade_high = bar.high_price
+                self.intra_trade_low = bar.low_price
+                if self.signal == 1:
                     # 开多
                     if self.active_orderids:
                         self.write_log("撤单不干净，无法挂单")
                         return
                     orderids = self.buy(bar.close_price, self.fixed_size, lock=True)
                     self.active_orderids.extend(orderids)
+                if self.signal == -1:
+                    # 开空
+                    if self.active_orderids:
+                        self.write_log("撤单不干净，无法挂单")
+                        return
+                    orderids = self.short(bar.close_price, self.fixed_size, lock=True)
+                    self.active_orderids.extend(orderids)
 
-                if self.pos < 0:
+            if self.pos > 0:
+                # 移动止损
+                # self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
+                # if self.active_orderids:
+                #         self.write_log("撤单不干净，无法挂单")
+                #         return
+                # orderids = self.sell(self.intra_trade_high*(1-self.trailing_stop/100), self.fixed_size, True, True)
+                # self.active_orderids.extend(orderids)
+
+                # 正反手
+                if self.signal == -1:
+                    # 平多开空
+                    if self.active_orderids:
+                        self.write_log("撤单不干净，无法挂单")
+                        return
+                    orderids = self.sell(bar.close_price, self.fixed_size, lock=True)
+                    self.active_orderids.extend(orderids)
+                    orderids = self.short(bar.close_price, self.fixed_size, lock=True)
+                    self.active_orderids.extend(orderids)
+
+            if self.pos < 0:
+                # 移动止损
+                # self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
+                # if self.active_orderids:
+                #         self.write_log("撤单不干净，无法挂单")
+                #         return
+                # orderids = self.cover(self.intra_trade_low*(1+self.trailing_stop/100), self.fixed_size, True, True)
+                # self.active_orderids.extend(orderids)
+
+                # 正反手
+                if self.signal == 1:
                     # 平空开多
                     if self.active_orderids:
                         self.write_log("撤单不干净，无法挂单")
@@ -177,25 +213,6 @@ class TSMyoAfternoonStrategy(CtaTemplate):
                     orderids = self.buy(bar.close_price, self.fixed_size, lock=True)
                     self.active_orderids.extend(orderids)
 
-            if self.signal == -1:
-                if self.pos == 0:
-                    # 开空
-                    if self.active_orderids:
-                        self.write_log("撤单不干净，无法挂单")
-                        return
-                    orderids = self.short(bar.close_price, self.fixed_size, lock=True)
-                    self.active_orderids.extend(orderids)
-
-                if self.pos > 0:
-                    # 平多开空
-                    if self.active_orderids:
-                        self.write_log("撤单不干净，无法挂单")
-                        return
-                    orderids = self.sell(bar.close_price, self.fixed_size, lock=True)
-                    self.active_orderids.extend(orderids)
-                    orderids = self.short(bar.close_price, self.fixed_size, lock=True)
-                    self.active_orderids.extend(orderids)
-                    
         # 日内平仓
         if bar.datetime.time() > self.exit_time:
             if self.pos > 0:
@@ -217,11 +234,22 @@ class TSMyoAfternoonStrategy(CtaTemplate):
     def on_15min_bar(self, bar: BarData):
         """
         1.根据R/S及最高最低价发出信号
+        2.根据ATR与ATRM进行过滤
         """
+        am = self.am
+        am.update_bar(bar)
+        if not am.inited:
+            return
+
         # 重置信号
         self.signal = 0
+        # 波动率过滤
+        atr_array = am.atr(self.atr_window, True)
+        atr_value = atr_array[-1]
+        atr_ma = atr_array[-self.atr_ma_len:].mean()
+
         # 午后
-        if bar.datetime.time()>self.break_time_end_2 and self.an_r:
+        if bar.datetime.time()>self.break_time_end_2 and self.an_r and atr_value>atr_ma:
             if bar.close_price > self.an_r and bar.close_price < self.bn_high:
                 # 空
                 self.signal = -1
