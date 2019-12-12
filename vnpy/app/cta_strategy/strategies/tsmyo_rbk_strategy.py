@@ -36,6 +36,9 @@ class TSMyoRBKStrategy(CtaTemplate):
 
     fixed_size = 1
     donchian_window = 30
+    atr_stop = 8.5
+    atr_window = 22
+    atr_ma_len = 10
 
     trailing_long = 0.4
     trailing_short = 0.4
@@ -56,15 +59,13 @@ class TSMyoRBKStrategy(CtaTemplate):
     day_close = 0
     tend_high = 0
     tend_low = 0
+    atr_value = 0
+    atr_ma_value = 0
 
     exit_time = time(hour=14, minute=54)
-    # 针对不同交易时间的品种
-    #night_time = time(hour=20,minute=10)
-    #day_time = time(hour=8,minute=10)
 
-    parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size", "donchian_window", "multiplier"]
-    variables = ["tend_low","tend_high","day_close","day_high","day_low","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
-    #variables = ["tend_low","tend_high","day_close","day_high","day_low"]
+    parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","atr_stop","atr_window","atr_ma_len"]
+    variables = ["tend_low","tend_high","atr_value","atr_ma_value","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
@@ -81,7 +82,7 @@ class TSMyoRBKStrategy(CtaTemplate):
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
-        self.load_bar(10)
+        self.load_bar(5)
         
     def on_start(self):
         """
@@ -128,7 +129,6 @@ class TSMyoRBKStrategy(CtaTemplate):
 
         # 判断开盘bar，先使用split判别有夜盘品种开盘
         # last_bar是昨天的，也就是说bar是今天第一根
-        #if ((last_bar.datetime.time()<self.night_time) and (bar.datetime.time()>self.night_time)) or ((last_bar.datetime.date() != bar.datetime.date()) and (bar.datetime.time()>self.day_time)):
         if ( last_bar.datetime.date() != bar.datetime.date() ):
             if self.day_high:
 
@@ -141,7 +141,6 @@ class TSMyoRBKStrategy(CtaTemplate):
                 self.buy_break = self.sell_setup + self.break_coef * (self.sell_setup - self.buy_setup)  # 突破买入价
                 self.sell_break = self.buy_setup - self.break_coef * (self.sell_setup - self.buy_setup)  # 突破卖出价
         
-            #if bar.datetime.date() != '2019-11-13':
             self.write_log( f"{bar.datetime.date()}开盘使用数据：" )
             self.write_log( f"昨收：{self.day_close}，昨高：{self.day_high}，昨低：{self.day_low}" )
             self.write_log( f"计算得出：" )
@@ -153,7 +152,6 @@ class TSMyoRBKStrategy(CtaTemplate):
             
         # 盘中记录当日HLC，为第二天计算做准备
         else:
-            #if bar.datetime.date() != '2019-11-13':
             self.day_high = max(self.day_high, bar.high_price)
             self.day_low = min(self.day_low, bar.low_price)
             self.day_close = bar.close_price
@@ -163,10 +161,15 @@ class TSMyoRBKStrategy(CtaTemplate):
         
         # N分钟内最高价和最低价
         self.tend_high, self.tend_low = am.donchian(self.donchian_window)
-
-        #if (bar.datetime.time() < self.exit_time) or ( bar.datetime.time() > self.night_time ):
+        # ATR相关指标
+        atr_array = am.atr(self.atr_window,True)
+        self.atr_value = atr_array[-1]
+        self.atr_ma_value = atr_array[-self.atr_ma_len:].mean()
+        
+        # 交易时间
         if (bar.datetime.time() < self.exit_time):
-            if self.pos == 0:
+            # 设置ATR过滤，只有波动扩大才开仓
+            if self.pos == 0 and self.atr_value > self.atr_ma_value:
                 self.intra_trade_low = bar.low_price
                 self.intra_trade_high = bar.high_price
                 # N分钟内最高价在sell_setup之上
@@ -195,9 +198,9 @@ class TSMyoRBKStrategy(CtaTemplate):
                     self.vt_orderids.extend(orderids)
 
             elif self.pos > 0:
-                # 跟踪止损出场
+                # 跟踪止损出场（百分比&ATR）
                 self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
-                long_stop = self.intra_trade_high * (1 - self.trailing_long / 100)
+                long_stop = max(self.intra_trade_high*(1-self.trailing_long/100), self.intra_trade_high-self.atr_stop*self.atr_value)
                 if self.vt_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
@@ -206,7 +209,7 @@ class TSMyoRBKStrategy(CtaTemplate):
 
             elif self.pos < 0:
                 self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
-                short_stop = self.intra_trade_low * (1 + self.trailing_short / 100)
+                short_stop = min(self.intra_trade_low*(1+self.trailing_short/100), self.intra_trade_low+self.atr_stop*self.atr_value)
                 if self.vt_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
