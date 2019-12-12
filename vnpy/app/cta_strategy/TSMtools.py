@@ -175,5 +175,26 @@ class TSMArrayManager(ArrayManager):
         if array:
             return result
         return result[-1]
+
+    def mom(self, n, array=False):
+        """ N-bar 动量 """
+        result = talib.MOM(self.close, n)
+        if array:
+            return result
+        return result[-1]
+
+    def mom_rocp(self, n1, n2, array=False):
+        """ N1-bar动量的N2-bar变化率 """
+        result = talib.ROCP(self.mom(n1,True), n2)
+        if array:
+            return result
+        return result[-1]
+
+    def mom_rocp_rsi(self, n1, n2, n3, array=False):
+        """ N1-bar动量的N2-bar变化率的RSI指标 """
+        result = talib.RSI(self.mom_rocp(n1, n2, True), n3)
+        if array:
+            return result
+        return result[-1]
     
 
