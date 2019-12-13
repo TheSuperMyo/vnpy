@@ -53,11 +53,13 @@ class TSMyoAfternoonStrategy(CtaTemplate):
     fixed_size = 1
     intra_trade_high = 0
     intra_trade_low = 0
-    trailing_stop = 0.4
-    atr_ma_len = 4
-    atr_window = 8
+    trailing_stop = 0.5
+    atr_stop = 2.5
+    atr_value = 0
+    atr_ma_len = 10
+    atr_window = 16
 
-    parameters = ['range_wide','atr_ma_len','atr_window','fixed_size']
+    parameters = ['range_wide','atr_ma_len','atr_window','fixed_size','trailing_stop','atr_stop']
     variables = ['bn_high','bn_low','an_r','an_s','signal']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -175,43 +177,55 @@ class TSMyoAfternoonStrategy(CtaTemplate):
 
             if self.pos > 0:
                 # 移动止损
-                # self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
-                # if self.active_orderids:
-                #         self.write_log("撤单不干净，无法挂单")
-                #         return
-                # orderids = self.sell(self.intra_trade_high*(1-self.trailing_stop/100), self.fixed_size, True, True)
-                # self.active_orderids.extend(orderids)
-
-                # 正反手
-                if self.signal == -1:
-                    # 平多开空
-                    if self.active_orderids:
+                self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
+                if self.active_orderids:
                         self.write_log("撤单不干净，无法挂单")
                         return
-                    orderids = self.sell(bar.close_price, self.fixed_size, lock=True)
-                    self.active_orderids.extend(orderids)
-                    orderids = self.short(bar.close_price, self.fixed_size, lock=True)
-                    self.active_orderids.extend(orderids)
+                # 固定比率
+                #orderids = self.sell(self.intra_trade_high*(1-self.trailing_stop/100), self.fixed_size, True, True)
+                # ATR
+                #orderids = self.sell(self.intra_trade_high - (self.atr_stop*self.atr_value), self.fixed_size, True, True)
+                # 固定比率 & ATR
+                stop_long = max(self.intra_trade_high*(1-self.trailing_stop/100), self.intra_trade_high - (self.atr_stop*self.atr_value))
+                orderids = self.sell(stop_long, self.fixed_size, True, True)
+                self.active_orderids.extend(orderids)
+
+                # # 正反手
+                # if self.signal == -1:
+                #     # 平多开空
+                #     if self.active_orderids:
+                #         self.write_log("撤单不干净，无法挂单")
+                #         return
+                #     orderids = self.sell(bar.close_price, self.fixed_size, lock=True)
+                #     self.active_orderids.extend(orderids)
+                #     orderids = self.short(bar.close_price, self.fixed_size, lock=True)
+                #     self.active_orderids.extend(orderids)
 
             if self.pos < 0:
                 # 移动止损
-                # self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
-                # if self.active_orderids:
-                #         self.write_log("撤单不干净，无法挂单")
-                #         return
-                # orderids = self.cover(self.intra_trade_low*(1+self.trailing_stop/100), self.fixed_size, True, True)
-                # self.active_orderids.extend(orderids)
-
-                # 正反手
-                if self.signal == 1:
-                    # 平空开多
-                    if self.active_orderids:
+                self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
+                if self.active_orderids:
                         self.write_log("撤单不干净，无法挂单")
                         return
-                    orderids = self.cover(bar.close_price, self.fixed_size, lock=True)
-                    self.active_orderids.extend(orderids)
-                    orderids = self.buy(bar.close_price, self.fixed_size, lock=True)
-                    self.active_orderids.extend(orderids)
+                # 固定比率    
+                #orderids = self.cover(self.intra_trade_low*(1+self.trailing_stop/100), self.fixed_size, True, True)
+                # ATR
+                #orderids = self.cover(self.intra_trade_low + (self.atr_stop*self.atr_value), self.fixed_size, True, True)
+                # 固定比率 & ATR
+                stop_short = min(self.intra_trade_low*(1+self.trailing_stop/100), self.intra_trade_low + (self.atr_stop*self.atr_value))
+                orderids = self.cover(stop_short, self.fixed_size, True, True)
+                self.active_orderids.extend(orderids)
+
+                # # 正反手
+                # if self.signal == 1:
+                #     # 平空开多
+                #     if self.active_orderids:
+                #         self.write_log("撤单不干净，无法挂单")
+                #         return
+                #     orderids = self.cover(bar.close_price, self.fixed_size, lock=True)
+                #     self.active_orderids.extend(orderids)
+                #     orderids = self.buy(bar.close_price, self.fixed_size, lock=True)
+                #     self.active_orderids.extend(orderids)
 
         # 日内平仓
         if bar.datetime.time() > self.exit_time:
@@ -245,11 +259,11 @@ class TSMyoAfternoonStrategy(CtaTemplate):
         self.signal = 0
         # 波动率过滤
         atr_array = am.atr(self.atr_window, True)
-        atr_value = atr_array[-1]
+        self.atr_value = atr_array[-1]
         atr_ma = atr_array[-self.atr_ma_len:].mean()
 
         # 午后
-        if bar.datetime.time()>self.break_time_end_2 and self.an_r and atr_value>atr_ma:
+        if bar.datetime.time()>self.break_time_end_2 and self.an_r and self.atr_value>atr_ma:
             if bar.close_price > self.an_r and bar.close_price < self.bn_high:
                 # 空
                 self.signal = -1
