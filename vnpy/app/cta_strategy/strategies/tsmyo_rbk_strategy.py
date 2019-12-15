@@ -61,10 +61,12 @@ class TSMyoRBKStrategy(CtaTemplate):
     tend_low = 0
     atr_value = 0
     atr_ma_value = 0
+    limited_size = 8
+    td_traded = 0
 
     exit_time = time(hour=14, minute=54)
 
-    parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","atr_stop","atr_window","atr_ma_len"]
+    parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
     variables = ["tend_low","tend_high","atr_value","atr_ma_value","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -148,6 +150,7 @@ class TSMyoRBKStrategy(CtaTemplate):
             self.day_high = bar.high_price
             self.day_low = bar.low_price
             self.day_close = bar.close_price
+            self.td_traded = 0
             
             
         # 盘中记录当日HLC，为第二天计算做准备
@@ -176,8 +179,8 @@ class TSMyoRBKStrategy(CtaTemplate):
                 if self.tend_high > self.sell_setup:
                     # 添加过滤，突破价不低于最高价，才进场
                     long_entry = max(self.buy_break, self.day_high)
-                    # 检查策略是否还有订单留存
-                    if self.vt_orderids:
+                    # 检查策略是否还有订单留存,或者是否达到交易上限
+                    if self.vt_orderids or self.td_traded >= self.limited_size:
                         self.write_log("撤单不干净，无法挂单")
                         return
                     orderids = self.buy(long_entry, self.fixed_size, stop=True, lock=True)
@@ -189,7 +192,7 @@ class TSMyoRBKStrategy(CtaTemplate):
 
                 elif self.tend_low < self.buy_setup:
                     short_entry = min(self.sell_break, self.day_low)
-                    if self.vt_orderids:
+                    if self.vt_orderids or self.td_traded >= self.limited_size:
                         self.write_log("撤单不干净，无法挂单")
                         return
                     orderids = self.short(short_entry, self.fixed_size, stop=True, lock=True)
@@ -248,6 +251,7 @@ class TSMyoRBKStrategy(CtaTemplate):
         """
         Callback of new trade data update.
         """
+        self.td_traded += 1
         self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
         self.put_event()
 
