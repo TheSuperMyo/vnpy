@@ -38,8 +38,8 @@ class TSMyoORBStrategy(CtaTemplate):
     a_down = 0
     c_up = 0
     c_down = 0
-    k1 = 0
-    k2 = 0
+    k1 = 1.1
+    k2 = 1.5
     day_high = 0
     day_low = 0
     long_intra = 0
@@ -65,8 +65,11 @@ class TSMyoORBStrategy(CtaTemplate):
     break_time_end_2 = time(hour=13,minute=0)# 股指下午
     break_time_end_3 = time(hour=13,minute=30)# 商品下午
 
-    parameters = []
-    variables = []
+    parameters = ['or_setup', 'k1', 'k2', 'is_lock', 'fixed_size']
+    variables = ['a_up_setup_counter', 'c_up_setup_counter',\
+         'a_down_setup_counter', 'c_down_setup_counter', 'stop_long_counter',\
+              'stop_short_counter', 'a_up', 'a_down', 'c_up', 'c_down',\
+                  'long_intra','short_intra','long_stop','short_stop']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
@@ -259,6 +262,7 @@ class TSMyoORBStrategy(CtaTemplate):
                 self.active_orderids.extend(orderids)
 
         self.bar_counter += 1
+        self.put_event()
 
     def on_order(self, order: OrderData):
         """
