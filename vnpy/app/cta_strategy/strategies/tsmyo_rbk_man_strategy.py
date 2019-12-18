@@ -20,7 +20,7 @@ from vnpy.app.cta_strategy.base import (
 
 
 
-class TSMyoRBKStrategy(CtaTemplate):
+class TSMyoRBKMANStrategy(CtaTemplate):
     """
     针对本地停止单触发的撤单失败导致重复挂单
         1.给cancel_all()返回值，去标记是否出现 OmsEngine中找不到 的情况，做相应处理
@@ -64,14 +64,18 @@ class TSMyoRBKStrategy(CtaTemplate):
     limited_size = 8
     td_traded = 0
 
+    set_yd_high = 0
+    set_yd_low = 0
+    set_yd_close = 0
+
     exit_time = time(hour=14, minute=54)
 
-    parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
+    parameters = ["trailing_short","trailing_long", "set_yd_high", "set_yd_low", "set_yd_close", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
     variables = ["tend_low","tend_high","atr_value","atr_ma_value","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(TSMyoRBKStrategy, self).__init__(
+        super(TSMyoRBKMANStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.bg = BarGenerator(self.on_bar)
@@ -132,6 +136,13 @@ class TSMyoRBKStrategy(CtaTemplate):
         # 判断开盘bar，先使用split判别有夜盘品种开盘
         # last_bar是昨天的，也就是说bar是今天第一根
         if ( last_bar.datetime.date() != bar.datetime.date() ):
+
+            # 手动键入要用于计算R/S的数据
+            if self.set_yd_high:
+                self.day_high = self.set_yd_high
+                self.day_low = self.set_yd_low
+                self.day_close = self.set_yd_close
+
             if self.day_high:
 
                 self.buy_setup = self.day_low - self.setup_coef * (self.day_high - self.day_close)  # 观察买入价
