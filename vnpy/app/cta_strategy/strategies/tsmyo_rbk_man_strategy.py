@@ -64,9 +64,9 @@ class TSMyoRBKMANStrategy(CtaTemplate):
     limited_size = 8
     td_traded = 0
 
-    set_yd_high = 0
-    set_yd_low = 0
-    set_yd_close = 0
+    set_yd_high = 0.0
+    set_yd_low = 0.0
+    set_yd_close = 0.0
 
     exit_time = time(hour=14, minute=54)
 
