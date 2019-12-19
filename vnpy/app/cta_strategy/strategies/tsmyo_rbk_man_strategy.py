@@ -40,8 +40,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
     atr_window = 44
     atr_ma_len = 20
 
-    trailing_long = 0.55
-    trailing_short = 0.55
+    trailing_stop = 0.55
     multiplier = 1
 
     buy_break = 0   # 突破买入价
@@ -70,7 +69,23 @@ class TSMyoRBKMANStrategy(CtaTemplate):
 
     exit_time = time(hour=14, minute=54)
 
-    parameters = ["trailing_short","trailing_long", "set_yd_high", "set_yd_low", "set_yd_close", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
+    # 针对不同交易时间的市场
+    open_time_night = time(hour=21,minute=0)# 商品夜盘
+    open_time_day_1 = time(hour=9,minute=0)# 商品
+    open_time_day_2 = time(hour=9,minute=30)# 股指
+
+    close_time_day = time(hour=15,minute=0)# 商品/股指（除了利率期货）
+    close_time_night_1 = time(hour=23,minute=0)# 其他夜盘商品
+    close_time_night_2 = time(hour=1,minute=0)# 工业金属
+    close_time_night_3 = time(hour=2,minute=30)# 黄金/白银/原油
+    
+    break_time_start_1 = time(hour=10,minute=15)# 商品茶歇
+    break_time_start_2 = time(hour=11,minute=30)# 全体午休
+    break_time_end_1 = time(hour=10,minute=30)# 商品茶歇
+    break_time_end_2 = time(hour=13,minute=0)# 股指下午
+    break_time_end_3 = time(hour=13,minute=30)# 商品下午
+
+    parameters = ["trailing_stop", "set_yd_high", "set_yd_low", "set_yd_close", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
     variables = ["tend_low","tend_high","atr_value","atr_ma_value","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -102,10 +117,26 @@ class TSMyoRBKMANStrategy(CtaTemplate):
         """
         self.write_log("策略停止")
 
+    def tick_filter(self, tick: TickData):
+        """
+        过滤异常时间的tick
+        """
+        tick_time = tick.datetime.time()
+        if tick_time < self.open_time_day_2:
+            return False
+        if tick_time > self.break_time_start_2 and tick_time < self.break_time_end_2:
+            return False
+        if tick_time > self.close_time_day:
+            return False
+        
+        return True
+
     def on_tick(self, tick: TickData):
         """
         Callback of new tick data update.
         """
+        if not self.tick_filter(tick):
+            return
         self.bg.update_tick(tick)
 
     def on_bar(self, bar: BarData):
@@ -214,7 +245,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
             elif self.pos > 0:
                 # 跟踪止损出场（百分比&ATR）
                 self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
-                long_stop = max(self.intra_trade_high*(1-self.trailing_long/100), self.intra_trade_high-self.atr_stop*self.atr_value)
+                long_stop = max(self.intra_trade_high*(1-self.trailing_stop/100), self.intra_trade_high-self.atr_stop*self.atr_value)
                 if self.vt_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
@@ -223,7 +254,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
 
             elif self.pos < 0:
                 self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
-                short_stop = min(self.intra_trade_low*(1+self.trailing_short/100), self.intra_trade_low+self.atr_stop*self.atr_value)
+                short_stop = min(self.intra_trade_low*(1+self.trailing_stop/100), self.intra_trade_low+self.atr_stop*self.atr_value)
                 if self.vt_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
