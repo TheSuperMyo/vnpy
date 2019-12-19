@@ -40,8 +40,7 @@ class TSMyoRBKStrategy(CtaTemplate):
     atr_window = 44
     atr_ma_len = 20
 
-    trailing_long = 0.55
-    trailing_short = 0.55
+    trailing_stop = 0.55
     multiplier = 1
 
     buy_break = 0   # 突破买入价
@@ -66,7 +65,7 @@ class TSMyoRBKStrategy(CtaTemplate):
 
     exit_time = time(hour=14, minute=54)
 
-    parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
+    parameters = ["trailing_stop","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
     variables = ["tend_low","tend_high","atr_value","atr_ma_value","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
@@ -203,7 +202,7 @@ class TSMyoRBKStrategy(CtaTemplate):
             elif self.pos > 0:
                 # 跟踪止损出场（百分比&ATR）
                 self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
-                long_stop = max(self.intra_trade_high*(1-self.trailing_long/100), self.intra_trade_high-self.atr_stop*self.atr_value)
+                long_stop = max(self.intra_trade_high*(1-self.trailing_stop/100), self.intra_trade_high-self.atr_stop*self.atr_value)
                 if self.vt_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
@@ -212,7 +211,7 @@ class TSMyoRBKStrategy(CtaTemplate):
 
             elif self.pos < 0:
                 self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
-                short_stop = min(self.intra_trade_low*(1+self.trailing_short/100), self.intra_trade_low+self.atr_stop*self.atr_value)
+                short_stop = min(self.intra_trade_low*(1+self.trailing_stop/100), self.intra_trade_low+self.atr_stop*self.atr_value)
                 if self.vt_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
