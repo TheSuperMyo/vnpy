@@ -311,7 +311,4 @@ class TSMyoAfternoonStrategy(CtaTemplate):
             if stop_order.stop_orderid in self.active_orderids:
                 self.active_orderids.remove(stop_order.stop_orderid)
                 self.active_orderids.extend(stop_order.vt_orderids)
-            # 撤掉其他停止单
-            for other_orderids in self.active_orderids:
-                if other_orderids.startswith(STOPORDER_PREFIX):
-                    self.cancel_order(other_orderids)
+            
