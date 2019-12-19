@@ -66,6 +66,22 @@ class TSMyoRBKStrategy(CtaTemplate):
 
     exit_time = time(hour=14, minute=54)
 
+    # 针对不同交易时间的市场
+    open_time_night = time(hour=21,minute=0)# 商品夜盘
+    open_time_day_1 = time(hour=9,minute=0)# 商品
+    open_time_day_2 = time(hour=9,minute=30)# 股指
+
+    close_time_day = time(hour=15,minute=0)# 商品/股指（除了利率期货）
+    close_time_night_1 = time(hour=23,minute=0)# 其他夜盘商品
+    close_time_night_2 = time(hour=1,minute=0)# 工业金属
+    close_time_night_3 = time(hour=2,minute=30)# 黄金/白银/原油
+    
+    break_time_start_1 = time(hour=10,minute=15)# 商品茶歇
+    break_time_start_2 = time(hour=11,minute=30)# 全体午休
+    break_time_end_1 = time(hour=10,minute=30)# 商品茶歇
+    break_time_end_2 = time(hour=13,minute=0)# 股指下午
+    break_time_end_3 = time(hour=13,minute=30)# 商品下午
+
     parameters = ["trailing_short","trailing_long","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
     variables = ["tend_low","tend_high","atr_value","atr_ma_value","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
 
@@ -98,10 +114,26 @@ class TSMyoRBKStrategy(CtaTemplate):
         """
         self.write_log("策略停止")
 
+    def tick_filter(self, tick: TickData):
+        """
+        过滤异常时间的tick
+        """
+        tick_time = tick.datetime.time()
+        if tick_time < self.open_time_day_2:
+            return False
+        if tick_time > self.break_time_start_2 and tick_time < self.break_time_end_2:
+            return False
+        if tick_time > self.close_time_day:
+            return False
+        
+        return True
+
     def on_tick(self, tick: TickData):
         """
         Callback of new tick data update.
         """
+        if not self.tick_filter(tick):
+            return
         self.bg.update_tick(tick)
 
     def on_bar(self, bar: BarData):
