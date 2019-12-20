@@ -37,10 +37,10 @@ class TSMyoRBKStrategy(CtaTemplate):
     fixed_size = 1
     donchian_window = 30
     atr_stop = 4
-    atr_window = 44
+    atr_window = 35
     atr_ma_len = 20
 
-    trailing_stop = 0.55
+    trailing_stop = 0.6
     multiplier = 1
 
     buy_break = 0   # 突破买入价
@@ -63,7 +63,7 @@ class TSMyoRBKStrategy(CtaTemplate):
     limited_size = 8
     td_traded = 0
 
-    exit_time = time(hour=14, minute=54)
+    exit_time = time(hour=14, minute=56)
 
     # 针对不同交易时间的市场
     open_time_night = time(hour=21,minute=0)# 商品夜盘
