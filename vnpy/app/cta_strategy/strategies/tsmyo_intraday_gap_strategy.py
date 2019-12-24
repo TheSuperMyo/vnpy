@@ -46,8 +46,8 @@ class TSMyoIntradayGapStrategy(CtaTemplate):
     fixed_size = 1
 
 
-    parameters = []
-    variables = []
+    parameters = ["xmin","fixed_size"]
+    variables = ["close_signal","gap_signal","reverse","intra"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
