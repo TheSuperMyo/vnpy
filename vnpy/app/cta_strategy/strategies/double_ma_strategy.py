@@ -27,9 +27,7 @@ class DoubleMaStrategy(CtaTemplate):
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(DoubleMaStrategy, self).__init__(
-            cta_engine, strategy_name, vt_symbol, setting
-        )
+        super().__init__(cta_engine, strategy_name, vt_symbol, setting)
 
         # bg生成bar后调on_bar
         self.bg = BarGenerator(self.on_bar)
