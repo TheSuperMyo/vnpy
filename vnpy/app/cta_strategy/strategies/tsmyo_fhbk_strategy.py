@@ -24,7 +24,7 @@ class TSMyoFHBKStrategy(CtaTemplate):
 
     # 日内交易
     exit_time = time(hour=14, minute=54)
-    fh_time = time(hour=10, minute=31)
+    fh_time = time(hour=10, minute=1)
 
 
     # 针对不同交易时间的市场
@@ -246,7 +246,7 @@ class TSMyoFHBKStrategy(CtaTemplate):
                 self.open_cover = 1
 
             # 过滤并决定方向
-            self.mrocprsi = am.mom_rocp_rsi(16,1,3,True)[-2]
+            self.mrocprsi = am.mom_rocp_rsi(self.m_len,self.rocp_len,self.rsi_len,True)[-2]
 
             if self.mrocprsi > (50+self.rsi_filter):
                 self.td_trend = -1
