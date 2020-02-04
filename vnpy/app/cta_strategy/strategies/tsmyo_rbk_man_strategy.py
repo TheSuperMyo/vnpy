@@ -215,10 +215,12 @@ class TSMyoRBKMANStrategy(CtaTemplate):
         if (bar.datetime.time() < self.exit_time):
             # 设置ATR过滤，只有波动扩大才开仓
             if self.pos == 0 and self.atr_value > self.atr_ma_value:
+                self.write_log( f"波动扩大：{self.atr_value} > {self.atr_ma_value}" )
                 self.intra_trade_low = bar.low_price
                 self.intra_trade_high = bar.high_price
                 # N分钟内最高价在sell_setup之上
                 if self.tend_high > self.sell_setup:
+                    self.write_log( f"N分钟内 tend_high > sell_setup：{self.tend_high} > {self.sell_setup}" )
                     # 添加过滤，突破价不低于最高价，才进场
                     long_entry = max(self.buy_break, self.day_high)
                     # 检查策略是否还有订单留存,或者是否达到交易上限
@@ -231,8 +233,10 @@ class TSMyoRBKMANStrategy(CtaTemplate):
                     # 反转系统进场，手数可以和趋势系统做区分
                     orderids = self.short(self.sell_enter, self.multiplier * self.fixed_size, stop=True, lock=True)
                     self.vt_orderids.extend(orderids)
+                    self.write_log( f"stop_order for buy & short：{long_entry} & {self.sell_enter}" )
 
                 elif self.tend_low < self.buy_setup:
+                    self.write_log( f"N分钟内 tend_low < buy_setup：{self.tend_low} < {self.buy_setup}" )
                     short_entry = min(self.sell_break, self.day_low)
                     if self.vt_orderids or self.td_traded >= self.limited_size:
                         self.write_log("撤单不干净或达到交易限制，无法挂单")
@@ -241,6 +245,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
                     self.vt_orderids.extend(orderids)
                     orderids = self.buy(self.buy_enter, self.multiplier * self.fixed_size, stop=True, lock=True)
                     self.vt_orderids.extend(orderids)
+                    self.write_log( f"stop_order for short & buy：{short_entry} & {self.buy_enter}" )
 
             elif self.pos > 0:
                 # 跟踪止损出场（百分比&ATR）
@@ -251,6 +256,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
                     return
                 orderids = self.sell(long_stop, abs(self.pos), stop=True, lock=True)
                 self.vt_orderids.extend(orderids)
+                self.write_log( f"stop_order for sell：{long_stop}" )
 
             elif self.pos < 0:
                 self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
@@ -260,6 +266,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
                     return
                 orderids = self.cover(short_stop, abs(self.pos), stop=True, lock=True)
                 self.vt_orderids.extend(orderids)
+                self.write_log( f"stop_order for cover：{short_stop}" )
         
         # 日内策略，最后6分钟不断尝试平仓
         else:
@@ -294,6 +301,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
         Callback of new trade data update.
         """
         self.td_traded += 1
+        self.write_log(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
         self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
         self.put_event()
 
