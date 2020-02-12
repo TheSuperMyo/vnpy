@@ -203,5 +203,15 @@ class TSMArrayManager(ArrayManager):
         if array:
             return result
         return result[-1]
+
+    def polyfit(self, n):
+        """ 一二阶拟合斜率 """
+        Y = self.close[-n:] - np.mean(self.close[-n:])  #去中心化处理,作为拟合用的因变量
+        X = np.linspace(1,len(Y),len(Y)) #拟合用的自变量
+    
+        poly_1 = np.polyfit(X,Y,deg=1) #一阶拟合
+        poly_2 = np.polyfit(X,Y,deg=2) #二阶拟合
+
+        return poly_1[0], poly_2[0]
     
 

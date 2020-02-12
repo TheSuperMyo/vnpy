@@ -16,9 +16,9 @@ from vnpy.app.cta_strategy.base import (
     StopOrderStatus,
 )
 from vnpy.app.cta_strategy.TSMtools import TSMArrayManager
-from numpy as np
+import numpy as np
 
-class TSMyoPloyfitStrategy(CtaTemplate):
+class TSMyoPolyfitStrategy(CtaTemplate):
     """"""
 
     author = "TheSuperMyo"
@@ -41,39 +41,40 @@ class TSMyoPloyfitStrategy(CtaTemplate):
     break_time_end_2 = time(hour=13,minute=0)# 股指下午
     break_time_end_3 = time(hour=13,minute=30)# 商品下午
 
-    fh_high = 0
-    fh_low = 0
-    setup_fit = 
+    poly_entry_1 = 0.5 # 入场一阶导条件
+    poly_entry_2 = 0.06 # 入场二阶导条件
+    poly_out_1 = 0.2 # 出场一阶导条件
+    poly_out_2 = 0 # 出场二阶导条件
 
-    long_entry = 0
+    fit_bar = 3 # K线周期
+    setup_fit = 85 # 基础拟合分钟数
+    end_window = 95 # 时间窗口分钟数
+    trailing_stop = 0.45 # 跟踪止损
+    fixed_size = 1 # 固定手数
+
+    bar_counter = 0 # 每日分钟计数器
+    poly_1 = 0
+    poly_2 = 0
+    long_entry = 0 
     short_entry = 0
+    long_exit = 0 
+    short_exit = 0
     stop_long = 0
-    stop_short = 0
-    hold_long = 0
-    hold_short = 0
-
-    rsi_filter = 20
-    mrocprsi = 0
-    m_len = 16
-    rocp_len = 1
-    rsi_len = 3
-    td_trend = 0
-
-    open_sell = 0
-    open_cover = 0
-
-    fixed_size = 1
+    stop_short = 0    
+    hold_high = 0
+    hold_low = 0
     
-    parameters = ['rsi_filter','m_len','rocp_len','rsi_len','fixed_size']
-    variables = ['fh_high','fh_low','mrocprsi','td_trend']
+    parameters = ['poly_entry_1','poly_entry_2','poly_out_1','poly_out_2','end_window','setup_fit','fit_bar','trailing_stop','fixed_size']
+    variables = ['bar_counter','poly_1','poly_2','stop_long','stop_short']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(TSMyoFHBKStrategy, self).__init__(
+        super(TSMyoPolyfitStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
-        self.bg = BarGenerator(self.on_bar, 15, self.on_15min_bar)
-        self.am = TSMArrayManager(50)
+        self.bg = BarGenerator(self.on_bar, self.fit_bar, self.on_fit_bar)
+        # 股指每天240分钟
+        self.am = TSMArrayManager(240)
         # 策略自身订单管理
         self.active_orderids = []
         self.bars = []
@@ -83,8 +84,8 @@ class TSMyoPloyfitStrategy(CtaTemplate):
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
-        # 根据需要的历史数据长度设定
-        self.load_bar(10)
+        # 不会用到昨日数据
+        # self.load_bar(10)
         
     def on_start(self):
         """
@@ -122,102 +123,80 @@ class TSMyoPloyfitStrategy(CtaTemplate):
 
     def on_bar(self, bar: BarData):
         """
-        1.根据信号挂单
+        1.分钟计数
+        2.根据信号挂单
         """
+        self.bar_counter += 1
         self.bg.update_bar(bar)
 
         self.cancel_all()
 
-        if self.pos == 0:
-            self.hold_long = 0
-            self.hold_short = 0
+        if self.pos == 0 and bar.datetime.time() < self.exit_time:
             if self.long_entry:
-                # 入场开多
+                # 入场开多，收盘价
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
-                orderids = self.buy(self.long_entry, self.fixed_size, True, True)
+                orderids = self.buy(bar.close_price, self.fixed_size, False, True)
                 self.active_orderids.extend(orderids)
 
             if self.short_entry:
-                # 入场开空
+                # 入场开空，收盘价
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
-                orderids = self.short(self.short_entry, self.fixed_size, True, True)
+                orderids = self.short(bar.close_price, self.fixed_size, False, True)
                 self.active_orderids.extend(orderids)
 
         if self.pos > 0:
-            # 开多后记录成本，开多信号归零
-            if self.long_entry:
-                self.hold_long = self.long_entry
-                self.long_entry = 0
+            self.hold_high = max(self.hold_high,bar.high_price)
+            self.stop_long = self.hold_high*(1-self.trailing_stop/100)
 
-            if self.open_sell == 1:
-                # 开盘平多信号
+            if self.long_exit or bar.datetime.time() > self.exit_time:
+                # 信号平多 or 日内平仓
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
                 orderids = self.sell(bar.close_price, self.fixed_size, False, True)
                 self.active_orderids.extend(orderids)
             else:
-                if bar.datetime.time() < self.exit_time:
-                    # 停止单平多
-                    if self.active_orderids:
-                        self.write_log("撤单不干净，无法挂单")
-                        return
-                    orderids = self.sell(self.stop_long, self.fixed_size, True, True)
-                    self.active_orderids.extend(orderids)
-                elif bar.close_price < self.hold_long:
-                    # 收盘前持仓亏损平多（否则持仓过夜）
-                    if self.active_orderids:
-                        self.write_log("撤单不干净，无法挂单")
-                        return
-                    orderids = self.sell(bar.close_price, self.fixed_size, False, True)
-                    self.active_orderids.extend(orderids)
+                # 停止单平多
+                if self.active_orderids:
+                    self.write_log("撤单不干净，无法挂单")
+                    return
+                orderids = self.sell(self.stop_long, self.fixed_size, True, True)
+                self.active_orderids.extend(orderids)
 
         if self.pos < 0:
-            # 开空后记录成本，开空信号归零
-            if self.short_entry:
-                self.hold_short = self.short_entry
-                self.short_entry = 0
+            self.hold_low = min(self.hold_low,bar.high_price)
+            self.stop_short = self.hold_low*(1+self.trailing_stop/100)
 
-            if self.open_cover == 1:
-                # 开盘平空信号
+            if self.short_exit or bar.datetime.time() > self.exit_time:
+                # 信号平空 or 日内平仓
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
                 orderids = self.cover(bar.close_price, self.fixed_size, False, True)
                 self.active_orderids.extend(orderids)
             else:
-                if bar.datetime.time() < self.exit_time:
-                    # 停止单平空
-                    if self.active_orderids:
-                        self.write_log("撤单不干净，无法挂单")
-                        return
-                    orderids = self.cover(self.stop_short, self.fixed_size, True, True)
-                    self.active_orderids.extend(orderids)
-                elif bar.close_price > self.hold_short:
-                    # 收盘前持仓亏损平空（否则持仓过夜）
-                    if self.active_orderids:
-                        self.write_log("撤单不干净，无法挂单")
-                        return
-                    orderids = self.cover(bar.close_price, self.fixed_size, False, True)
-                    self.active_orderids.extend(orderids)
+                # 停止单平空
+                if self.active_orderids:
+                    self.write_log("撤单不干净，无法挂单")
+                    return
+                orderids = self.cover(self.stop_short, self.fixed_size, True, True)
+                self.active_orderids.extend(orderids)
 
-    def on_15min_bar(self, bar: BarData):
+    def on_fit_bar(self, bar: BarData):
         """
-        1.计算MROCPRSI指标，过滤交易日
-        2.产生信号（相关交易价位）
+        1.负责每日开盘的初始化
+        2.计算一二阶导数并产生信号
         """
         # for backtest
-        self.cta_engine.output(f"{bar.datetime.time()}")
-        self.write_log(f"{bar.datetime.time()}")
+        # self.cta_engine.output(f"{bar.datetime.time()}")
+        # self.write_log(f"{bar.datetime.time()}")
 
         am = self.am
         am.update_bar(bar)
-        if not am.inited:
-            return
 
         self.bars.append(bar)
         if len(self.bars) <= 2:
@@ -226,53 +205,48 @@ class TSMyoPloyfitStrategy(CtaTemplate):
             self.bars.pop(0)
         
         last_bar = self.bars[-2]
-        # 开盘bar
+        # 开盘fit_min_bar
         if last_bar.datetime.date() != bar.datetime.date():
             # 初始化
-            self.td_trend = 0
+            self.bar_counter = self.fit_bar
+            self.long_entry = 0 
+            self.short_entry = 0
+            self.long_exit = 0 
+            self.short_exit = 0
 
-            self.open_sell = 0
-            self.open_cover = 0
+        if self.bar_counter < self.setup_fit:
+            return
+        
+        self.poly_1, self.poly_2 = am.polyfit(int(self.bar_counter/self.fit_bar))
 
-            self.fh_high = bar.high_price
-            self.fh_low = bar.low_price
-            # 开盘有利平仓
-            if self.pos > 0 and bar.close_price > last_bar.close_price:
-                # 开盘平多信号
-                self.open_sell = 1
-            if self.pos < 0 and bar.close_price < last_bar.close_price:
-                # 开盘平空信号
-                self.open_cover = 1
+        if self.pos == 0 and self.bar_counter < self.end_window:
+            if self.poly_1 > self.poly_entry_1 and self.poly_2 > self.poly_entry_2:
+                # 加速上涨，开多信号
+                self.long_entry = 1 
+                self.short_entry = 0
+                self.long_exit = 0 
+                self.short_exit = 0
+            if self.poly_1 < -self.poly_entry_1 and self.poly_2 < -self.poly_entry_2:
+                # 加速下跌，开空信号
+                self.long_entry = 0 
+                self.short_entry = 1
+                self.long_exit = 0 
+                self.short_exit = 0
 
-            # 过滤并决定方向
-            self.mrocprsi = am.mom_rocp_rsi(self.m_len,self.rocp_len,self.rsi_len,True)[-2]
-
-            if self.mrocprsi > (50+self.rsi_filter):
-                self.td_trend = -1
-            if self.mrocprsi < (50-self.rsi_filter):
-                self.td_trend = 1
-
-        if self.pos == 0:
-            # 确定今日从未持仓
-            if self.td_trend != 0 and self.open_sell==0 and self.open_cover==0:
-                # 如果今日可以操作且仍在fh内，则记录
-                if bar.datetime.time() < self.fh_time:
-                    self.fh_high = max(self.fh_high,bar.high_price)
-                    self.fh_low = min(self.fh_low,bar.low_price)
-                # 入场
-                elif bar.datetime.time() > self.fh_time:
-                    if self.td_trend > 0 :
-                        # 停止单开多
-                        self.long_entry = self.fh_high
-                        self.short_entry = 0
-                        self.stop_long = self.fh_low
-                        self.stop_short = 0
-                    if self.td_trend < 0 :
-                        # 停止单开空
-                        self.long_entry = 0
-                        self.short_entry = self.fh_low
-                        self.stop_long = 0
-                        self.stop_short = self.fh_high
+        if self.pos > 0:
+            if self.poly_1 < self.poly_out_1 or self.poly_2 < self.poly_out_2:
+                # 减速上涨，平多信号
+                self.long_entry = 0 
+                self.short_entry = 0
+                self.long_exit = 1 
+                self.short_exit = 0
+        
+        if self.pos < 0:
+            if self.poly_1 > -self.poly_out_1 or self.poly_2 > -self.poly_out_2:
+                self.long_entry = 0 
+                self.short_entry = 0
+                self.long_exit = 0 
+                self.short_exit = 1
         
 
     def on_order(self, order: OrderData):
@@ -289,6 +263,10 @@ class TSMyoPloyfitStrategy(CtaTemplate):
         """
         # 邮寄提醒
         self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
+        self.long_entry = 0 
+        self.short_entry = 0
+        self.long_exit = 0 
+        self.short_exit = 0
         self.put_event()
 
     def on_stop_order(self, stop_order: StopOrder):
