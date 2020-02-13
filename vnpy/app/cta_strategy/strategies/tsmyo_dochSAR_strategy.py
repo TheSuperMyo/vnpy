@@ -24,7 +24,7 @@ class TSMyoDochSARStrategy(CtaTemplate):
     author = "TheSuperMyo"
 
     # 日内交易
-    exit_time = time(hour=14, minute=54)
+    exit_time = time(hour=14, minute=56)
     # 针对不同交易时间的市场
     open_time_night = time(hour=21,minute=0)# 商品夜盘
     open_time_day_1 = time(hour=9,minute=0)# 商品
