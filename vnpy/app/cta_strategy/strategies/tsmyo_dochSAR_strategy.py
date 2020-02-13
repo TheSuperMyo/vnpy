@@ -84,7 +84,7 @@ class TSMyoDochSARStrategy(CtaTemplate):
         """
         self.write_log("策略初始化")
         # 不会用到昨日数据
-        self.load_bar(2)
+        self.load_bar(5)
         
     def on_start(self):
         """
