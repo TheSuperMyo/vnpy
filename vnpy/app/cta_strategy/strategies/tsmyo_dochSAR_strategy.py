@@ -50,7 +50,6 @@ class TSMyoDochSARStrategy(CtaTemplate):
     fixed_size = 1 # 固定手数
 
     bar_counter = 0 # 每日分钟计数器
-    add_counter = 0 # 每日计算极值数据变长计数器
 
     SAR_stop_long = 0
     SAR_stop_short = 0
@@ -64,7 +63,7 @@ class TSMyoDochSARStrategy(CtaTemplate):
     hold_low = 0
     
     parameters = ['offset_bar','end_window','setup_bar','fit_bar','fixed_size']
-    variables = ['bar_counter','add_counter','SAR_stop_long','SAR_stop_short','AF','hold_high','hold_low']
+    variables = ['bar_counter','SAR_stop_long','SAR_stop_short','AF','hold_high','hold_low']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
@@ -127,8 +126,6 @@ class TSMyoDochSARStrategy(CtaTemplate):
         3.计算SAR系统止损点位
         """
         self.bar_counter += 1
-        if self.bar_counter > self.setup_bar:
-            self.add_counter += 1
         self.bg.update_bar(bar)
 
         self.cancel_all()
@@ -221,7 +218,6 @@ class TSMyoDochSARStrategy(CtaTemplate):
         if last_bar.datetime.date() != bar.datetime.date():
             # 初始化
             self.bar_counter = self.fit_bar
-            self.add_counter = 0
             self.long_entry = 0 
             self.short_entry = 0
             self.long_exit = 0 
@@ -232,7 +228,7 @@ class TSMyoDochSARStrategy(CtaTemplate):
         if self.bar_counter < self.setup_bar:
             return
         
-        up_array, down_array = am.donchian(int((self.bar_counter+self.add_counter)/self.fit_bar))
+        up_array, down_array = am.donchian(int((self.bar_counter)/self.fit_bar))
         up = up_array[-1-self.offset_bar]
         down = down_array[-1-self.offset_bar]
 
