@@ -53,6 +53,7 @@ class TSMyoPolyfitStrategy(CtaTemplate):
     fixed_size = 1 # 固定手数
 
     bar_counter = 0 # 每日分钟计数器
+    fit_counter = 0 # 每日拟合数据变长计数器
     poly_1 = 0
     poly_2 = 0
     long_entry = 0 
@@ -85,7 +86,7 @@ class TSMyoPolyfitStrategy(CtaTemplate):
         """
         self.write_log("策略初始化")
         # 不会用到昨日数据
-        # self.load_bar(10)
+        self.load_bar(10)
         
     def on_start(self):
         """
@@ -127,6 +128,8 @@ class TSMyoPolyfitStrategy(CtaTemplate):
         2.根据信号挂单
         """
         self.bar_counter += 1
+        if self.bar_counter > self.setup_fit:
+            self.fit_counter += 1
         self.bg.update_bar(bar)
 
         self.cancel_all()
@@ -209,6 +212,7 @@ class TSMyoPolyfitStrategy(CtaTemplate):
         if last_bar.datetime.date() != bar.datetime.date():
             # 初始化
             self.bar_counter = self.fit_bar
+            self.fit_counter = 0
             self.long_entry = 0 
             self.short_entry = 0
             self.long_exit = 0 
@@ -217,7 +221,7 @@ class TSMyoPolyfitStrategy(CtaTemplate):
         if self.bar_counter < self.setup_fit:
             return
         
-        self.poly_1, self.poly_2 = am.polyfit(int(self.bar_counter/self.fit_bar))
+        self.poly_1, self.poly_2 = am.polyfit(int((self.bar_counter+self.fit_counter)/self.fit_bar))
 
         if self.pos == 0 and self.bar_counter < self.end_window:
             if self.poly_1 > self.poly_entry_1 and self.poly_2 > self.poly_entry_2:
