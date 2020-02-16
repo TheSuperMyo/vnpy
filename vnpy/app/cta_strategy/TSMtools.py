@@ -213,5 +213,23 @@ class TSMArrayManager(ArrayManager):
         poly_2 = np.polyfit(X,Y,deg=2) #二阶拟合
 
         return poly_1[0], poly_2[0]
+
+    def er(self, n, array=False):
+        """ ER位移路程比 """
+        # 计算n周期位移
+        x = abs(self.close - self.close.shift(n).fillna(0))
+        # 计算单位周期位移
+        pre_close = self.close.shift(1).fillna(0)
+        m1 = abs(self.close - pre_close)
+        # 计算n周期单位位移加总（路程）
+        cumsum = np.cumsum(m1)
+        pre_cumsum = cumsum.shift(n).fillna(0)
+        s = cumsum - pre_cumsum
+
+        ER = x/s
+        
+        if array:
+            return ER
+        return ER[-1]
     
 
