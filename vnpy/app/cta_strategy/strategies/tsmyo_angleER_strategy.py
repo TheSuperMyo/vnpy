@@ -18,13 +18,13 @@ from vnpy.app.cta_strategy.base import (
 from vnpy.app.cta_strategy.TSMtools import TSMArrayManager
 import numpy as np
 
-class TSMyoDochSARStrategy(CtaTemplate):
+class TSMyoAngleERStrategy(CtaTemplate):
     """"""
 
     author = "TheSuperMyo"
 
     # 日内交易
-    exit_time = time(hour=14, minute=56)
+    exit_time = time(hour=14, minute=57)
     # 针对不同交易时间的市场
     open_time_night = time(hour=21,minute=0)# 商品夜盘
     open_time_day_1 = time(hour=9,minute=0)# 商品
@@ -41,36 +41,33 @@ class TSMyoDochSARStrategy(CtaTemplate):
     break_time_end_2 = time(hour=13,minute=0)# 股指下午
     break_time_end_3 = time(hour=13,minute=30)# 商品下午
 
-    fit_bar = 3 # K线周期
-    offset_bar = 2 # 入场极值偏移
-    setup_bar = 85 # 基础拟合分钟数
-    end_window = 95 # 时间窗口分钟数
+    setup_bar = 50 # 基础拟合分钟数
+    open_bar_1 = 50 # 开仓时点1
+    open_bar_2 = 150 # 开仓时点2
+    angle_fliter = 0.2 # 角度过滤
+    er_fliter = 0.35 # er过滤
 
     trailing_stop = 0.45 # 跟踪止损
     fixed_size = 1 # 固定手数
 
     bar_counter = 0 # 每日分钟计数器
+    er_value = 0 
+    angle_value = 0
 
-    SAR_stop_long = 0
-    SAR_stop_short = 0
-    AF = 0
-
-    long_entry = 0 
-    short_entry = 0
-    long_exit = 0 
-    short_exit = 0  
+    stop_long = 0
+    stop_short = 0
     hold_high = 0
     hold_low = 0
     
-    parameters = ['offset_bar','end_window','setup_bar','fit_bar','fixed_size']
-    variables = ['bar_counter','SAR_stop_long','SAR_stop_short','AF','hold_high','hold_low']
+    parameters = ['open_bar_1','open_bar_2','angle_fliter','setup_bar','trailing_stop','fixed_size']
+    variables = ['bar_counter','er_value','angle_value','stop_long','stop_short']
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(TSMyoDochSARStrategy, self).__init__(
+        super(TSMyoAngleERStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
-        self.bg = BarGenerator(self.on_bar, self.fit_bar, self.on_fit_bar)
+        self.bg = BarGenerator(self.on_bar)
         # 股指每天240分钟
         self.am = TSMArrayManager(240)
         # 策略自身订单管理
@@ -122,40 +119,51 @@ class TSMyoDochSARStrategy(CtaTemplate):
     def on_bar(self, bar: BarData):
         """
         1.分钟计数
-        2.根据信号挂单
-        3.计算SAR系统止损点位
+        2.挂撤单
         """
         self.bar_counter += 1
-        self.bg.update_bar(bar)
 
         self.cancel_all()
 
-        if self.pos == 0 and bar.datetime.time() < self.exit_time:
-            if self.long_entry:
-                # 入场开多，收盘价
+        am = self.am
+        am.update_bar(bar)
+        if not am.inited:
+            return
+
+        self.bars.append(bar)
+        if len(self.bars) <= 2:
+            return
+        else:
+            self.bars.pop(0)
+        
+        last_bar = self.bars[-2]
+
+        if ( last_bar.datetime.date() != bar.datetime.date() ):
+            self.bar_counter = 1
+
+        self.er_value = am.er(self.setup_bar, False)
+        self.angle_value = am.angle(self.setup_bar, False)
+
+        if self.pos == 0 and (self.bar_counter == self.open_bar_1 or self.bar_counter == self.open_bar_2):
+            if self.angle_value > self.angle_fliter and self.er_value > self.er_fliter:
+                # 入场开多
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
-                orderids = self.buy(bar.close_price, self.fixed_size, False, True)
+                orderids = self.buy(bar.high_price, self.fixed_size, False, True)
                 self.active_orderids.extend(orderids)
 
-            if self.short_entry:
-                # 入场开空，收盘价
+            if self.angle_value < -self.angle_fliter and self.er_value > self.er_fliter:
+                # 入场开空
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
-                orderids = self.short(bar.close_price, self.fixed_size, False, True)
+                orderids = self.short(bar.low_price, self.fixed_size, False, True)
                 self.active_orderids.extend(orderids)
 
         if self.pos > 0:
-            old_high = self.hold_high
             self.hold_high = max(self.hold_high,bar.high_price)
-            if old_high - self.hold_high != 0:
-                self.AF += 0.01
-                self.AF = min(self.AF,0.1)
-
-            self.SAR_stop_long = self.SAR_stop_long + (self.hold_high-self.SAR_stop_long)*self.AF
-            #self.stop_long = self.hold_high*(1-self.trailing_stop/100)
+            self.stop_long = self.hold_high*(1-self.trailing_stop/100)
 
             if bar.datetime.time() > self.exit_time:
                 # 日内平仓
@@ -169,17 +177,12 @@ class TSMyoDochSARStrategy(CtaTemplate):
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
-                orderids = self.sell(self.SAR_stop_long, self.fixed_size, True, True)
+                orderids = self.sell(self.stop_long, self.fixed_size, True, True)
                 self.active_orderids.extend(orderids)
 
         if self.pos < 0:
-            old_low = self.hold_low
             self.hold_low = min(self.hold_low,bar.low_price)
-            if old_low - self.hold_low != 0:
-                self.AF += 0.01
-                self.AF = min(self.AF,0.1)
-
-            self.SAR_stop_short = self.SAR_stop_short - (self.SAR_stop_short-self.hold_low)*self.AF
+            self.stop_short = self.hold_low*(1+self.trailing_stop/100)
 
             if bar.datetime.time() > self.exit_time:
                 # 日内平仓
@@ -193,64 +196,8 @@ class TSMyoDochSARStrategy(CtaTemplate):
                 if self.active_orderids:
                     self.write_log("撤单不干净，无法挂单")
                     return
-                orderids = self.cover(self.SAR_stop_short, self.fixed_size, True, True)
-                self.active_orderids.extend(orderids)
-
-    def on_fit_bar(self, bar: BarData):
-        """
-        1.负责每日开盘的初始化
-        2.计算极值并产生信号
-        """
-        # self.cta_engine.output(f"{bar.datetime.time()}")
-        # self.write_log(f"{bar.datetime.time()}")
-
-        am = self.am
-        am.update_bar(bar)
-
-        self.bars.append(bar)
-        if len(self.bars) <= 2:
-            return
-        else:
-            self.bars.pop(0)
-        
-        last_bar = self.bars[-2]
-        # 开盘fit_min_bar
-        if last_bar.datetime.date() != bar.datetime.date():
-            # 初始化
-            self.bar_counter = self.fit_bar
-            self.long_entry = 0 
-            self.short_entry = 0
-            self.long_exit = 0 
-            self.short_exit = 0
-            self.SAR_stop_long = 0
-            self.SAR_stop_short = 0
-
-        if self.bar_counter < self.setup_bar:
-            return
-        
-        up_array, down_array = am.donchian(int((self.bar_counter)/self.fit_bar))
-        up = up_array[-1-self.offset_bar]
-        down = down_array[-1-self.offset_bar]
-
-        if self.pos == 0 and self.bar_counter < self.end_window:
-            if bar.close_price > up:
-                # 向上突破，开多信号
-                self.long_entry = 1 
-                self.short_entry = 0
-                self.long_exit = 0 
-                self.short_exit = 0
-                # 抛物线初始止损点
-                self.SAR_stop_long = bar.low_price
-
-            if bar.close_price < down:
-                # 向下突破，开空信号
-                self.long_entry = 0 
-                self.short_entry = 1
-                self.long_exit = 0 
-                self.short_exit = 0
-                # 抛物线初始止损点
-                self.SAR_stop_short = bar.high_price
-        
+                orderids = self.cover(self.stop_short, self.fixed_size, True, True)
+                self.active_orderids.extend(orderids)        
 
     def on_order(self, order: OrderData):
         """
@@ -266,13 +213,13 @@ class TSMyoDochSARStrategy(CtaTemplate):
         """
         # 邮寄提醒
         self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
-        self.long_entry = 0 
-        self.short_entry = 0
-        self.long_exit = 0 
-        self.short_exit = 0
         if self.pos == 0:
-            self.SAR_stop_long = 0
-            self.SAR_stop_short = 0
+            self.stop_long = 0
+            self.stop_short = 0
+        if self.pos > 0:
+            self.hold_high = trade.price
+        if self.pos < 0:
+            self.hold_low = trade.price
         self.put_event()
 
     def on_stop_order(self, stop_order: StopOrder):

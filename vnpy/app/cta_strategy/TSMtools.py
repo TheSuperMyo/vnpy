@@ -217,21 +217,32 @@ class TSMArrayManager(ArrayManager):
 
     def er(self, n, array=False):
         """ ER位移路程比 """
-        # 计算n周期位移
-        x = abs(pd.DataFrame(self.close) - pd.DataFrame(self.close).shift(n).fillna(0))
+        pre_close = np.zeros(self.size)
+        pre_n_close = np.zeros(self.size)
+        pre_cumsum = np.zeros(self.size)
+
+        pre_close[1:] = self.close[:-1]
+        pre_n_close[n:] = self.close[:-n]
         # 计算单位周期位移
-        pre_close = pd.DataFrame(self.close).shift(1).fillna(0)
-        m1 = abs(pd.DataFrame(self.close) - pre_close)
+        m1 = abs(self.close - pre_close)
+        # 计算n周期位移
+        x = abs(self.close - pre_n_close)
         # 计算n周期单位位移加总（路程）
         cumsum = np.cumsum(m1)
-        pre_cumsum = cumsum.shift(n).fillna(0)
+        pre_cumsum[n:] = cumsum[:-n]
         s = cumsum - pre_cumsum
 
-        ER = x/s
-        
+        ER = x/s        
         if array:
             return ER
         return ER[-1]
+
+    def angle(self, n, array=False):
+        """ 线性回归角度 """
+        angle = talib.LINEARREG_SLOPE(self.close, n)   
+        if array:
+            return angle
+        return angle[-1]
 
     def clfxc(self, n, array=False):
         """缠论分型通道"""
