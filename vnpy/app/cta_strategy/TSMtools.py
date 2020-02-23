@@ -273,6 +273,22 @@ class TSMArrayManager(ArrayManager):
             return up, down
         return up[-1], down[-1]
 
+    def LLT(self, n, array=False):
+        """广发低延时均线"""
+        LLT = np.zeros(self.size)
+        LLT[:3] = self.close[:3]
+        a = 2/(n+1)
+        """LLT(T) = (a - a**2/4)*p(T) + (a**2/2)*p(T-1)
+					- (a - 3a**2/4)*p(T-2) + 2(1-a)*LLT(T-1)
+					- (1-a)**2*LLT(T-2)   T>=3
+			LLT(T) = p(T)  0<T<=2
+			a = 2/(d+1)"""
+        for i in range(3,self.size):
+            LLT[i] = (a-(a**2)/4)*self.close[i] + (a**2/2)*self.close[i-1] - (a-3*(a**2)/4)*self.close[i-2] + 2*(1-a)*LLT[i-1] - (1-a)**2*LLT[i-2]
+
+        if array:
+            return LLT
+        return LLT[-1]
 
             
                 
