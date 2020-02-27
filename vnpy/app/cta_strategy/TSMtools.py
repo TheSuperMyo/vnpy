@@ -290,6 +290,31 @@ class TSMArrayManager(ArrayManager):
             return LLT
         return LLT[-1]
 
+    def bias_SMA_Accumulated_signal(self, ma_len, window_len, std_n, array=False):
+        """价格-均线l窗口std通道信号"""
+        signal = np.zeros(self.size)
+        bias = self.close - talib.SMA(self.close, ma_len)
+        bias_Accu = talib.SUM(bias, window_len)
+        bias_var = talib.VAR(bias, ma_len)
+        bias_Accu_std = talib.SQRT(talib.SUM(bias_var, window_len))
+
+        for i in range(self.size):
+            if bias_Accu[i] > std_n * bias_Accu_std[i]:
+                signal[i] = 1
+            elif bias_Accu < -1 * std_n * bias_Accu_std[i]:
+                signal[i] = -1
+            else:
+                signal[i] = 0
+        
+        if array:
+            return signal
+        return signal[-1]
+        
+        
+
+
+        
+
             
                 
         
