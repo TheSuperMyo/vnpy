@@ -183,9 +183,12 @@ class TSMyoCLFXCStrategy(CtaTemplate):
 
         am = self.am
         am.update_bar(bar)
+        if not am.inited:
+            return
         
         up, down = am.clfxc(self.clfx_len, False)
         rsi_value = am.rsi(self.rsi_len, False)
+        rsi_flag = 0
         if abs(rsi_value-50)>self.rsi_filter:
             rsi_flag = 1
 

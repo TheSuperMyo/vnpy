@@ -252,19 +252,22 @@ class TSMArrayManager(ArrayManager):
         clfx_low_index = []
         
         # 遍历，找到是分型点的index
-        for i in range(1,self.size):
+        for i in range(1,self.size-1):
             if self.high[i]>self.high[i-1] and self.high[i]>self.high[i+1] and self.low[i]>self.low[i-1] and self.low[i]>self.low[i+1]:
                 clfx_high_index.append(i)
             elif self.high[i]<self.high[i-1] and self.high[i]<self.high[i+1] and self.low[i]<self.low[i-1] and self.low[i]<self.low[i+1]:
                 clfx_low_index.append(i)
         # 填充“当前时点最近一个分型值”数组
+        print(clfx_high_index)
         for i in range(len(clfx_high_index)-1):
             clfx_high[clfx_high_index[i]:clfx_high_index[i+1]] = self.high[clfx_high_index[i]]
-        clfx_high[clfx_high_index[-1]:-1] = self.high[clfx_high_index[-1]]
+        if len(clfx_high_index) >= 2:
+            clfx_high[clfx_high_index[-1]:] = self.high[clfx_high_index[-1]]
 
         for i in range(len(clfx_low_index)-1):
             clfx_low[clfx_low_index[i]:clfx_low_index[i+1]] = self.low[clfx_low_index[i]]
-        clfx_low[clfx_low_index[-1]:-1] = self.low[clfx_low_index[-1]]
+        if len(clfx_low_index) >= 2:
+            clfx_low[clfx_low_index[-1]:] = self.low[clfx_low_index[-1]]
         # 窗口期内最大分型点的数值构成通道上下轨
         up = talib.MAX(clfx_high, n)
         down = talib.MIN(clfx_low, n)
