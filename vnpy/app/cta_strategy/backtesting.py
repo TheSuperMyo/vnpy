@@ -439,7 +439,7 @@ class BacktestingEngine:
             return_std = df["return"].std() * 100
 
             if return_std:
-                sharpe_ratio = daily_return / return_std * np.sqrt(240)
+                sharpe_ratio = (daily_return - (4/240))/ return_std * np.sqrt(240)
             else:
                 sharpe_ratio = 0
 
