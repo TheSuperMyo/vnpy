@@ -309,6 +309,21 @@ class TSMArrayManager(ArrayManager):
         if array:
             return signal
         return signal[-1]
+
+    def higher_order_moment(self, moment_order, n, array=False):
+        """因为收益率均值较小，此处返回高阶原点矩"""
+        # 对数收益率序列，长度size-1
+        log_r = self.log_return(True)
+        # 原点矩
+        result = talib.SUM(log_r**moment_order, n)/n
+
+        if array:
+            return result
+        return result[-1]
+        
+        
+        
+
         
         
 
