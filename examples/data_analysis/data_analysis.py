@@ -88,14 +88,16 @@ class DataAnalysis:
         l = []  # noqa
         c = []
         v = []
+        r = []
 
-        for bar in bars:
-            time = bar.datetime
-            open_price = bar.open_price
-            high_price = bar.high_price
-            low_price = bar.low_price
-            close_price = bar.close_price
-            volume = bar.volume
+        for i in range(1,len(bars)):
+            time = bars[i].datetime
+            open_price = bars[i].open_price
+            high_price = bars[i].high_price
+            low_price = bars[i].low_price
+            close_price = bars[i].close_price
+            volume = bars[i].volume
+            ret = np.log(bars[i]/bars[i-1])
 
             t.append(time)
             o.append(open_price)
@@ -103,14 +105,15 @@ class DataAnalysis:
             l.append(low_price)
             c.append(close_price)
             v.append(volume)
+            r.append(ret)
 
         self.orignal["open"] = o
         self.orignal["high"] = h
         self.orignal["low"] = l
         self.orignal["close"] = c
         self.orignal["volume"] = v
-        self.orignal.index = t
-        #self.orignal["time"] = t
+        self.orignal["time"] = t
+        self.orignal["return"] = r
 
     def base_analysis(self, df: DataFrame = None):
         """"""
@@ -120,24 +123,35 @@ class DataAnalysis:
         if df is None:
             output("数据为空，请输入数据")
 
-        close_price = df["close"]
+        output("检验空值")
+        nan_num = df.isnull().sum()
+        output(f"总体空值为 {nan_num}")
 
-        output("第一步:画出行情图，检查数据断点")
+        close_price = df["close"]
+        retrun_series = df["return"]
+
+        output("画出收盘价行情图，检查数据断点")
 
         #close_price.plot(figsize=(20, 8), title="close_price")
         plt.figure(figsize=(20,8))
-        plt.plot(range(0,len(close_price)),close_price)
+        plt.plot(range(0,len(close_price)), close_price, title="close_price")
         plt.show()
 
-        random_test(close_price)
-        stability_test(close_price)
-        autocorrelation_test(close_price)
+        output("画出收益率图，检查数据断点")
+        plt.figure(figsize=(20,8))
+        plt.plot(range(0,len(retrun_series)), close_price, title="retrun_series")
+        plt.show()
 
-        self.relative_volatility_analysis(df)
-        self.growth_analysis(df)
-        self.trend_analysis(df)
 
-        self.calculate_index(df)
+        #random_test(close_price)
+        #stability_test(close_price)
+        #autocorrelation_test(close_price)
+
+        #self.relative_volatility_analysis(df)
+        #self.growth_analysis(df)
+        #self.trend_analysis(df)
+
+        #self.calculate_index(df)
 
         return df
 
