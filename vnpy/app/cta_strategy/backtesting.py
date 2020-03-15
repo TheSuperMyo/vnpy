@@ -10,9 +10,11 @@ import traceback
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 from pandas import DataFrame
 from deap import creator, base, tools, algorithms
+from itertools import combinations
 
 from vnpy.trader.constant import (Direction, Offset, Exchange,
                                   Interval, Status)
@@ -351,6 +353,70 @@ class BacktestingEngine:
 
         self.output("逐日盯市盈亏计算完成")
         return self.daily_df
+
+    def calc_pbo(self, op_re:list, s=10):
+        # 计算过拟合概率 PBO
+        
+        # 获取各参数的每日收益率，建立DataFrame
+        setting_returcn_dict = {}
+        for re in op_re:
+            setting_returcn_dict[re[0]] = re[3]['return']
+        df = pd.DataFrame.from_dict(setting_returcn_dict)
+        
+        # 收益率时序切分为 S 份，每份包含 T/S 日收益率
+        df = df.reset_index()
+        num = pd.cut(df.index,bins=s, labels=range(0, s))
+        df['num'] = num
+        # 组合
+        comb_list = list(combinations(range(0,s), int(s/2)))
+        print(f"从总样本内（共{s}段）取{int(s/2)}段数据组成样本内，共有{len(comb_list)}种取法")
+                        
+        # 对于每种取样方法计算 样本内最优参数 在样本外不及中位数概率
+        pbo_yes = 0 # 样本外表现不及中位数
+        pbo_no = 0 # 样本外表现优于中位数
+        for comb in comb_list:
+            is_setting_sharpe_dict = {}
+            os_setting_sharpe_dict = {}
+            is_df = pd.DataFrame()
+            os_df = pd.DataFrame()
+            # 组成样本内外的 DataFrame
+            for name,group in df.groupby('num'):
+                if name in comb:
+                    is_df = is_df.append(group)
+                else:
+                    os_df = os_df.append(group)
+            #print(f"对于取样方式{comb}")
+            #print(f"样本内长度{len(is_df)}")
+            #print(f"样本外长度{len(os_df)}")
+            is_df = is_df.drop(['num','date'],axis=1)
+            os_df = os_df.drop(['num','date'],axis=1)
+            
+            # 样本内外分别计算夏普，并保存排序
+            for col in is_df.columns:
+                is_setting_sharpe_dict[col] = (is_df[col].mean() - (0.04/240))/ is_df[col].std() * np.sqrt(240)
+            for col in os_df.columns:
+                os_setting_sharpe_dict[col] = (os_df[col].mean() - (0.04/240))/ os_df[col].std() * np.sqrt(240)
+            is_setting_sharpe_dict_list= sorted(is_setting_sharpe_dict.items(),key=lambda x:x[1])
+            os_setting_sharpe_dict_list= sorted(os_setting_sharpe_dict.items(),key=lambda x:x[1])
+            #print(f"此次样本内参数排序{is_setting_sharpe_dict_list}")
+            #print(f"此次样本外参数排序{os_setting_sharpe_dict_list}")
+            
+            # 找到样本内最优在样本外的表现 是否优于 所有参数表现的中位数
+            index_os = 1
+            for os_kv in os_setting_sharpe_dict_list:
+                # 找样本内最优参数在样本外对应的排序
+                if os_kv[0] == is_setting_sharpe_dict_list[-1][0]:
+                    break
+                else:
+                    index_os += 1
+            w = index_os/len(os_setting_sharpe_dict_list)
+            print(f"样本内组合为{comb}时，样本内最优参数在样本外相对排名 W （0,1）越大说明在样本外越优秀：{w}")
+            if w <= 0.5:
+                pbo_yes += 1
+            else:
+                pbo_no += 1
+        print(f"经计算，过拟合概率PBO为：{pbo_yes/(pbo_yes+pbo_no)}")
+        return pbo_yes/(pbo_yes+pbo_no)
 
     def calculate_statistics(self, df: DataFrame = None, output=True):
         """"""
@@ -1232,11 +1298,11 @@ def optimize(
     engine.add_strategy(strategy_class, setting)
     engine.load_data()
     engine.run_backtesting()
-    engine.calculate_result()
+    result_df = engine.calculate_result()
     statistics = engine.calculate_statistics(output=False)
 
     target_value = statistics[target_name]
-    return (str(setting), target_value, statistics)
+    return (str(setting), target_value, statistics, result_df)
 
 
 @lru_cache(maxsize=1000000)
