@@ -411,7 +411,7 @@ class BacktestingEngine:
                     index_os += 1
             w = index_os/len(os_setting_sharpe_dict_list)
             print(f"样本内组合为{comb}时，样本内最优参数在样本外相对排名 W （0,1）越大说明在样本外越优秀：{w}")
-            if w <= 0.5:
+            if w < 0.5:
                 pbo_yes += 1
             else:
                 pbo_no += 1
