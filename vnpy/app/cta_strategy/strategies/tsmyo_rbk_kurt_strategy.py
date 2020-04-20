@@ -1,4 +1,8 @@
-from datetime import time
+from datetime import time, datetime, timedelta
+from vnpy.trader.database import database_manager
+from vnpy.trader.utility import load_json, save_json, extract_vt_symbol, round_to
+import pandas as pd
+import numpy as np
 from vnpy.app.cta_strategy import (
     CtaTemplate,
     StopOrder,
@@ -17,10 +21,16 @@ from vnpy.app.cta_strategy.base import (
     StopOrderStatus,
     INTERVAL_DELTA_MAP
 )
+from vnpy.trader.constant import (
+    Direction,
+    OrderType,
+    Interval,
+    Exchange,
+    Offset,
+    Status
+)
 
-
-
-class TSMyoRBKStrategy(CtaTemplate):
+class TSMyoRBKKURTStrategy(CtaTemplate):
     """
     针对本地停止单触发的撤单失败导致重复挂单
         1.给cancel_all()返回值，去标记是否出现 OmsEngine中找不到 的情况，做相应处理
@@ -36,9 +46,11 @@ class TSMyoRBKStrategy(CtaTemplate):
 
     fixed_size = 1
     donchian_window = 30
-    atr_stop = 4
-    atr_window = 35
-    atr_ma_len = 20
+    atr_stop = 5
+    atr_window = 70
+    atr_ma_len = 25
+    kurt_len = 10
+    kurt_filter = 0.8
 
     trailing_stop = 0.6
     multiplier = 1
@@ -62,6 +74,7 @@ class TSMyoRBKStrategy(CtaTemplate):
     atr_ma_value = 0
     limited_size = 8
     td_traded = 0
+    cannot_kurt = 0
 
     exit_time = time(hour=14, minute=56)
 
@@ -81,12 +94,12 @@ class TSMyoRBKStrategy(CtaTemplate):
     break_time_end_2 = time(hour=13,minute=0)# 股指下午
     break_time_end_3 = time(hour=13,minute=30)# 商品下午
 
-    parameters = ["trailing_stop","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
-    variables = ["tend_low","tend_high","atr_value","atr_ma_value","buy_break", "sell_setup", "sell_enter", "buy_enter", "buy_setup", "sell_break"]
+    parameters = ["trailing_stop","kurt_len","kurt_filter","setup_coef", "break_coef", "enter_coef_1", "enter_coef_2", "fixed_size","limited_size","atr_stop","atr_window","atr_ma_len"]
+    variables = ["tend_low","tend_high","atr_value","atr_ma_value"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
-        super(TSMyoRBKStrategy, self).__init__(
+        super(TSMyoRBKKURTStrategy, self).__init__(
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.bg = BarGenerator(self.on_bar)
@@ -100,6 +113,75 @@ class TSMyoRBKStrategy(CtaTemplate):
         """
         self.write_log("策略初始化")
         self.load_bar(5)
+
+    def market_open(self):
+        # 读一下前几天的日内收益率数据，算峰度
+        bars = []
+        # 回测时自带
+        if self.cta_engine.engine_type == EngineType.BACKTESTING:
+            symbol = self.cta_engine.symbol
+            exchange = self.cta_engine.exchange
+            end = self.cta_engine.datetime - timedelta(1)
+            start = end - timedelta(30)
+        # 实盘时
+        else:
+            symbol, exchange = self.cta_engine.extract_vt_symbol(self.vt_symbol)
+            end = datetime.now()
+            start = end - timedelta(30)
+            # 在线数据源获取
+            bars = self.cta_engine.query_bar_from_rq(symbol, exchange, Interval.DAILY, start, end)
+        
+        # 没有的话问本地数据库要
+        if not bars:
+            bars = database_manager.load_bar_data(
+                symbol=symbol,
+                exchange=exchange,
+                interval=Interval.DAILY,
+                start=start,
+                end=end,
+            )
+
+        # Generate history data in DataFrame
+        df = pd.DataFrame()
+        t = []
+        o = []
+        h = []
+        l = []  
+        c = []
+        v = []
+        for i in range(0,len(bars)):
+            time = bars[i].datetime
+            open_price = bars[i].open_price
+            high_price = bars[i].high_price
+            low_price = bars[i].low_price
+            close_price = bars[i].close_price
+            volume = bars[i].volume
+            t.append(time)
+            o.append(open_price)
+            h.append(high_price)
+            l.append(low_price)
+            c.append(close_price)
+            v.append(volume)
+
+        df["open"] = o
+        df["high"] = h
+        df["low"] = l
+        df["close"] = c
+        df["volume"] = v
+        df["time"] = t
+        df["intraday_return"] = np.log(df["close"]/df["open"])
+        kurt_array = df["intraday_return"].rolling(self.kurt_len).kurt().tolist()
+        
+        kurt_value = 0
+        if len(kurt_array) >= 1:
+            kurt_value = kurt_array[-1]
+
+        self.write_log(f"近{self.kurt_len}日日内峰度{kurt_value}，阈值{self.kurt_filter}")
+        if kurt_value < self.kurt_filter:
+            self.cannot_kurt = 1
+        else:
+            self.cannot_kurt = 0
+        
         
     def on_start(self):
         """
@@ -139,6 +221,7 @@ class TSMyoRBKStrategy(CtaTemplate):
         """
         Callback of new bar data update.
         """
+        
         # 如果撤单过程中出现在OMSEngine找不到订单
         # 则可能是挂单的EVENT_ORDER还未处理，跳过该此次执行
         any_not_find = 0
@@ -153,6 +236,8 @@ class TSMyoRBKStrategy(CtaTemplate):
             return
 
         self.bars.append(bar)
+        if len(self.bars) == 1:
+            self.market_open()
         if len(self.bars) <= 2:
             return
         else:
@@ -163,6 +248,9 @@ class TSMyoRBKStrategy(CtaTemplate):
         # 判断开盘bar，先使用split判别有夜盘品种开盘
         # last_bar是昨天的，也就是说bar是今天第一根
         if ( last_bar.datetime.date() != bar.datetime.date() ):
+            # 每日一次
+            self.market_open()
+
             if self.day_high:
 
                 self.buy_setup = self.day_low - self.setup_coef * (self.day_high - self.day_close)  # 观察买入价
@@ -189,6 +277,10 @@ class TSMyoRBKStrategy(CtaTemplate):
             self.day_high = max(self.day_high, bar.high_price)
             self.day_low = min(self.day_low, bar.low_price)
             self.day_close = bar.close_price
+        
+        # 前N日峰度不够，当日不交易
+        if self.cannot_kurt:
+            return
 
         if not self.sell_setup:
             return

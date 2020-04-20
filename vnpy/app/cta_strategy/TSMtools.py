@@ -304,7 +304,7 @@ class TSMArrayManager(ArrayManager):
         for i in range(self.size):
             if bias_Accu[i] > std_n * bias_Accu_std[i]:
                 signal[i] = 1
-            elif bias_Accu < -1 * std_n * bias_Accu_std[i]:
+            elif bias_Accu[i] < -1 * std_n * bias_Accu_std[i]:
                 signal[i] = -1
             else:
                 signal[i] = 0
