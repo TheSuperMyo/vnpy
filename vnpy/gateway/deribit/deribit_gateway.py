@@ -392,14 +392,20 @@ class DeribitWebsocketApi(WebsocketClient):
             )
 
             if contract.product == Product.OPTION:
+                option_expiry = datetime.fromtimestamp(
+                    d["expiration_timestamp"] / 1000
+                )
+                option_underlying = "_".join([
+                    d["base_currency"],
+                    option_expiry.strftime("%Y%m%d")
+                ])
+
                 contract.option_portfolio = d["base_currency"]
                 contract.option_strike = d["strike"]
                 contract.option_index = str(d["strike"])
-                contract.option_underlying = d["base_currency"]
+                contract.option_underlying = option_underlying
                 contract.option_type = OPTIONTYPE_DERIBIT2VT[d["option_type"]]
-                contract.option_expiry = datetime.fromtimestamp(
-                    d["expiration_timestamp"] / 1000
-                )
+                contract.option_expiry = option_expiry
 
             self.gateway.on_contract(contract)
 
@@ -608,6 +614,18 @@ class DeribitWebsocketApi(WebsocketClient):
         tick.volume = data["stats"]["volume"]
         tick.datetime = datetime.fromtimestamp(data["timestamp"] / 1000)
 
+        if tick.last_price is None:
+            tick.last_price = (tick.bid_price_1 + tick.ask_price_1) / 2
+
+        if tick.volume is None:
+            tick.volume = 0
+
+        if tick.high_price is None:
+            tick.high_price = 0
+
+        if tick.low_price is None:
+            tick.low_price = 0
+
         self.gateway.on_tick(copy(tick))
 
     def on_orderbook(self, packet: dict):
@@ -617,16 +635,17 @@ class DeribitWebsocketApi(WebsocketClient):
         symbol = data["instrument_name"]
         bids = data["bids"]
         asks = data["asks"]
-
         tick = self.ticks[symbol]
-        for i in range(5):
+
+        for i in range(min(len(bids), 5)):
             ix = i + 1
-
             bp, bv = bids[i]
-            ap, av = asks[i]
-
             setattr(tick, f"bid_price_{ix}", bp)
             setattr(tick, f"bid_volume_{ix}", bv)
+
+        for i in range(min(len(asks), 5)):
+            ix = i + 1
+            ap, av = asks[i]
             setattr(tick, f"ask_price_{ix}", ap)
             setattr(tick, f"ask_volume_{ix}", av)
 

@@ -1,6 +1,6 @@
 """"""
 from datetime import datetime
-from typing import List, Optional, Sequence, Type
+from typing import List, Dict, Optional, Sequence, Type
 
 from peewee import (
     AutoField,
@@ -13,6 +13,7 @@ from peewee import (
     PostgresqlDatabase,
     SqliteDatabase,
     chunked,
+    fn
 )
 
 from vnpy.trader.constant import Exchange, Interval
@@ -394,6 +395,23 @@ class SqlManager(BaseDatabaseManager):
             return s.to_bar()
         return None
 
+    def get_oldest_bar_data(
+        self, symbol: str, exchange: "Exchange", interval: "Interval"
+    ) -> Optional["BarData"]:
+        s = (
+            self.class_bar.select()
+                .where(
+                (self.class_bar.symbol == symbol)
+                & (self.class_bar.exchange == exchange.value)
+                & (self.class_bar.interval == interval.value)
+            )
+            .order_by(self.class_bar.datetime.asc())
+            .first()
+        )
+        if s:
+            return s.to_bar()
+        return None
+
     def get_newest_tick_data(
         self, symbol: str, exchange: "Exchange"
     ) -> Optional["TickData"]:
@@ -409,6 +427,50 @@ class SqlManager(BaseDatabaseManager):
         if s:
             return s.to_tick()
         return None
+
+    def get_bar_data_statistics(self) -> List[Dict]:
+        """"""
+        s = (
+            self.class_bar.select(
+                self.class_bar.symbol,
+                self.class_bar.exchange,
+                self.class_bar.interval,
+                fn.COUNT(self.class_bar.id).alias("count")
+            ).group_by(
+                self.class_bar.symbol,
+                self.class_bar.exchange,
+                self.class_bar.interval
+            )
+        )
+
+        result = []
+
+        for data in s:
+            result.append({
+                "symbol": data.symbol,
+                "exchange": data.exchange,
+                "interval": data.interval,
+                "count": data.count
+            })
+
+        return result
+
+    def delete_bar_data(
+        self,
+        symbol: str,
+        exchange: "Exchange",
+        interval: "Interval"
+    ) -> int:
+        """
+        Delete all bar data with given symbol + exchange + interval.
+        """
+        query = self.class_bar.delete().where(
+            (self.class_bar.symbol == symbol)
+            & (self.class_bar.exchange == exchange.value)
+            & (self.class_bar.interval == interval.value)
+        )
+        count = query.execute()
+        return count
 
     def clean(self, symbol: str):
         self.class_bar.delete().where(self.class_bar.symbol == symbol).execute()
