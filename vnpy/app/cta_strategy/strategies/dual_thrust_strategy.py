@@ -26,7 +26,7 @@ class DualThrustStrategy(CtaTemplate):
     day_high = 0
     day_low = 0
 
-    range = 0
+    day_range = 0
     long_entry = 0
     short_entry = 0
     exit_time = time(hour=14, minute=55)
@@ -35,7 +35,7 @@ class DualThrustStrategy(CtaTemplate):
     short_entered = False
 
     parameters = ["k1", "k2", "fixed_size"]
-    variables = ["range", "long_entry", "short_entry"]
+    variables = ["day_range", "long_entry", "short_entry"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
