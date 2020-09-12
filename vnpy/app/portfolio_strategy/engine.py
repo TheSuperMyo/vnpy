@@ -77,7 +77,7 @@ class StrategyEngine(BaseEngine):
     def init_engine(self):
         """
         """
-        self.init_rqdata()
+        #self.init_rqdata()
         self.load_strategy_class()
         self.load_strategy_setting()
         self.load_strategy_data()
@@ -159,6 +159,7 @@ class StrategyEngine(BaseEngine):
             return
 
         self.call_strategy_func(strategy, strategy.update_trade, trade)
+        self.call_strategy_func(strategy, strategy.on_trade, trade)
 
     def process_position_event(self, event: Event):
         """"""

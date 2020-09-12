@@ -132,6 +132,13 @@ class StrategyTemplate(ABC):
         """
         pass
 
+    @virtual
+    def on_trade(self, bars: Dict[str, BarData]) -> None:
+        """
+        Callback of trade
+        """
+        pass
+
     def update_trade(self, trade: TradeData) -> None:
         """
         Callback of new trade data update.
