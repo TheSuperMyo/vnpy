@@ -112,7 +112,7 @@ class ArbWtCh3Strategy(StrategyTemplate):
         Callback of new tick data update.
         """
         # 时间过滤
-        if (tick.datetime.time() > self.day_open_time and tick.datetime.time() < self.day_close_time) or (tick.datetime.time() > self.night_open_time) or (tick.datetime.time() < self.day_close_time):
+        if (tick.datetime.time() > self.day_open_time and tick.datetime.time() < self.day_close_time) or (tick.datetime.time() > self.night_open_time) or (tick.datetime.time() < self.night_close_time):
             self.flag = 1
             self.put_counter += 1
             if self.put_counter > 120:
