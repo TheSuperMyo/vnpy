@@ -5,7 +5,7 @@ import numpy as np
 
 from vnpy.app.portfolio_strategy import StrategyTemplate, StrategyEngine
 #from vnpy.trader.utility import BarGenerator
-from vnpy.trader.object import TickData, BarData, ContractData
+from vnpy.trader.object import TickData, BarData, ContractData, TradeData
 import talib
 from collections import deque
 from vnpy.trader.constant import Interval, Direction, Offset
@@ -121,8 +121,8 @@ class ArbWtCh3Strategy(StrategyTemplate):
         else:
             if self.flag == 0:
                 return
-            code_time = datetime.now()
-            self.write_log("{0} in on_tick:不在交易时间".format(code_time))
+            tick_time = tick.datetime
+            self.write_log("{0} in on_tick:不在交易时间".format(tick_time))
             # 活跃单全撤
             self.cancel_all()
             # 市价平仓
@@ -185,8 +185,9 @@ class ArbWtCh3Strategy(StrategyTemplate):
                 # 试图开仓中，判断是否存在一边全成
                 if (abs(self.get_pos(self.leg1_symbol)) == self.arb_size) or (abs(self.get_pos(self.leg2_symbol)) == self.arb_size):
                     if abs(self.get_pos(self.leg1_symbol)) != self.arb_size:
+                        tick_time = tick.datetime
                         code_time = datetime.now()
-                        self.write_log("{0} in on_tick:{1}尝试追单".format(code_time, self.leg1_symbol))
+                        self.write_log("code{0} tick{1} in on_tick:{2}尝试追单".format(code_time, tick_time, self.leg1_symbol))
                         # leg1没到位
                         for vt_orderid in list(self.active_orderids):
                             order = self.get_order(vt_orderid)
@@ -207,13 +208,15 @@ class ArbWtCh3Strategy(StrategyTemplate):
                                 if vt_orderids:
                                     for vt_orderid in vt_orderids:
                                         self.active_orderids.add(vt_orderid)
+                                tick_time = tick.datetime
                                 code_time = datetime.now()
-                                self.write_log("{0} in on_tick:追单完成".format(code_time))
+                                self.write_log("code{} tick{} in on_tick:追单完成".format(code_time,tick_time))
                                 self.try_open = 0
                                 break          
                     if abs(self.get_pos(self.leg2_symbol)) != self.arb_size:
+                        tick_time = tick.datetime
                         code_time = datetime.now()
-                        self.write_log("{0} in on_tick:{1}尝试追单".format(code_time,self.leg2_symbol))
+                        self.write_log("code{} tick{} in on_tick:{}尝试追单".format(code_time,tick_time,self.leg2_symbol))
                         # leg2没到位
                         for vt_orderid in list(self.active_orderids):
                             order = self.get_order(vt_orderid)
@@ -234,16 +237,18 @@ class ArbWtCh3Strategy(StrategyTemplate):
                                 if vt_orderids:
                                     for vt_orderid in vt_orderids:
                                         self.active_orderids.add(vt_orderid)
-                                code_time = datetime.now()
-                                self.write_log("{0} in on_tick:追单完成".format(code_time))
+                                tick_time = tick.datetime
+                                code_time = datetime.now()  
+                                self.write_log("code{} tick{} in on_tick:追单完成".format(code_time,tick_time))
                                 self.try_open = 0
                                 break
             
             if self.counter < self.time_out:
                 self.counter += 1
                 return
+            tick_time = tick.datetime
             code_time = datetime.now()
-            self.write_log("{} in on_tick:等待时间到，当前仓位：近月{}远月{}，本地委托{}".format(code_time,self.get_pos(self.leg1_symbol),self.get_pos(self.leg2_symbol),self.active_orderids))
+            self.write_log("code{} tick{} in on_tick:等待时间到，当前仓位：近月{}远月{}，本地委托{}".format(code_time, tick_time,self.get_pos(self.leg1_symbol),self.get_pos(self.leg2_symbol),self.active_orderids))
             self.try_open = 0
             # 委托全撤
             self.cancel_all()
@@ -254,8 +259,9 @@ class ArbWtCh3Strategy(StrategyTemplate):
             
         # 检查单腿风险
         if (self.get_pos(self.leg1_symbol) + self.get_pos(self.leg2_symbol)) != 0:
+            tick_time = tick.datetime
             code_time = datetime.now()
-            self.write_log("{} in on_tick:出现单腿风险，当前仓位：近月{}远月{}，本地委托{}".format(code_time,self.get_pos(self.leg1_symbol),self.get_pos(self.leg2_symbol),self.active_orderids))
+            self.write_log("code{} tick{} in on_tick:出现单腿风险，当前仓位：近月{}远月{}，本地委托{}".format(code_time, tick_time, self.get_pos(self.leg1_symbol),self.get_pos(self.leg2_symbol),self.active_orderids))
             # 记录启动以来总单腿风险次数
             self.risk_counter += 1
             # 处理单腿
@@ -297,8 +303,9 @@ class ArbWtCh3Strategy(StrategyTemplate):
         if self.get_pos(self.leg1_symbol) == 0 and self.get_pos(self.leg2_symbol) == 0:
             if self.spread_last_mid >= self.ema_up:
                 # 做空价差
+                tick_time = tick.datetime
                 code_time = datetime.now()
-                self.write_log(f"{code_time} in on_tick:{self.spread_last_mid}>={self.ema_up},价差开空头")
+                self.write_log(f"code{code_time} tick{tick_time} in on_tick:{self.spread_last_mid}>={self.ema_up},价差开空头")
                 vt_orderids = self.short(self.leg1_symbol, self.leg1_last_ask, self.arb_size)
                 if vt_orderids:
                     for vt_orderid in vt_orderids:
@@ -311,8 +318,9 @@ class ArbWtCh3Strategy(StrategyTemplate):
                 
             if self.spread_last_mid <= self.ema_down:
                 # 做多价差
+                tick_time = tick.datetime
                 code_time = datetime.now()
-                self.write_log(f"{code_time} in on_tick:{self.spread_last_mid}<={self.ema_down},价差开多头")
+                self.write_log(f"code{code_time} tick{tick_time} in on_tick:{self.spread_last_mid}<={self.ema_down},价差开多头")
                 vt_orderids = self.buy(self.leg1_symbol, self.leg1_last_bid, self.arb_size)
                 if vt_orderids:
                     for vt_orderid in vt_orderids:
@@ -326,8 +334,9 @@ class ArbWtCh3Strategy(StrategyTemplate):
         if self.get_pos(self.leg1_symbol) > 0 and self.get_pos(self.leg2_symbol) < 0:
             if self.spread_last_mid >= self.ema_mid:
                 # 反手做空价差
+                tick_time = tick.datetime
                 code_time = datetime.now()
-                self.write_log(f"{code_time} in on_tick:{self.spread_last_mid}>={self.ema_mid},价差多头退出")
+                self.write_log(f"code{code_time} tick{tick_time} in on_tick:{self.spread_last_mid}>={self.ema_mid},价差多头退出")
                 vt_orderids = self.sell(self.leg1_symbol, self.leg1_last_ask, self.arb_size)
                 if vt_orderids:
                     for vt_orderid in vt_orderids:
@@ -341,8 +350,9 @@ class ArbWtCh3Strategy(StrategyTemplate):
         if self.get_pos(self.leg1_symbol) < 0 and self.get_pos(self.leg2_symbol) > 0:
             if self.spread_last_mid <= self.ema_mid:
                 # 反手做多价差
+                tick_time = tick.datetime
                 code_time = datetime.now()
-                self.write_log(f"{code_time} in on_tick:{self.spread_last_mid}<={self.ema_mid},价差空头退出")
+                self.write_log(f"code{code_time} tick{tick_time} in on_tick:{self.spread_last_mid}<={self.ema_mid},价差空头退出")
                 vt_orderids = self.cover(self.leg1_symbol, self.leg1_last_bid, self.arb_size)
                 if vt_orderids:
                     for vt_orderid in vt_orderids:
@@ -352,12 +362,12 @@ class ArbWtCh3Strategy(StrategyTemplate):
                     for vt_orderid in vt_orderids:
                         self.active_orderids.add(vt_orderid)
                 
-    def on_trade(self, bars: Dict[str, BarData]) -> None:
+    def on_trade(self, trade: TradeData) -> None:
         """
         Callback of trade.
         """
         self.trade_counter += 1
-        code_time = datetime.now()
-        self.write_log("{} in on_trade:发生成交！当前仓位：近月{}远月{}，本地委托{}".format(code_time,self.get_pos(self.leg1_symbol),self.get_pos(self.leg2_symbol),self.active_orderids))
+        trade_time = trade.datetime
+        self.write_log("{} in on_trade:发生成交！当前仓位：近月{}远月{}，本地委托{}".format(trade_time,self.get_pos(self.leg1_symbol),self.get_pos(self.leg2_symbol),self.active_orderids))
 
     
