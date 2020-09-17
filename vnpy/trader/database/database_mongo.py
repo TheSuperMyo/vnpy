@@ -9,6 +9,8 @@ from vnpy.trader.object import BarData, TickData
 
 from .database import BaseDatabaseManager, Driver, DB_TZ
 
+from mongoengine.context_managers import switch_collection
+
 
 def init(_: Driver, settings: dict):
     database = settings["database"]
