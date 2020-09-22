@@ -105,7 +105,7 @@ class ArbWtCh3Strategy(StrategyTemplate):
         Callback when strategy is stopped.
         """
         self.write_log("策略停止")
-        self.write_log("交易次数{0},单腿风险次数{1},单腿风险比{2}".format(self.trade_counter,self.risk_counter,self.trade_counter/(self.risk_counter+1)))
+        #self.write_log("交易次数{0},单腿风险次数{1},单腿风险比{2}".format(self.trade_counter,self.risk_counter,self.trade_counter/(self.risk_counter+1)))
 
     def on_tick(self, tick: TickData):
         """
@@ -151,6 +151,17 @@ class ArbWtCh3Strategy(StrategyTemplate):
                     for vt_orderid in vt_orderids:
                         self.active_orderids.add(vt_orderid)
             self.flag = 0
+
+            # 回到初始状态
+            self.write_log("该交易时段交易次数{0},单腿风险次数{1},单腿风险比{2}".format(self.trade_counter,self.risk_counter,self.trade_counter/(self.risk_counter+1)))
+            self.spread_count = 0
+            self.spread_mid_array.clear()
+            self.counter = 0
+            self.try_open = 0
+            self.risk_counter = 0
+            self.trade_counter = 0
+            self.put_counter = 0
+
             return
 
         # 行情
