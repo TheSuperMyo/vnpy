@@ -165,14 +165,14 @@ class BacktestingEngine:
 
     def set_parameters(
         self,
-        vt_symbols: List[str],
-        start: datetime,
-        rate: float,
-        slippage: float,
-        size: float,
-        pricetick: float,
-        capital: int = 0,
-        end: datetime = None,
+        vt_symbols,
+        start,
+        rate,
+        slippage,
+        size,
+        pricetick,
+        capital = 0,
+        end = None
     ):
         """"""
         
@@ -234,7 +234,7 @@ class BacktestingEngine:
             start = end + interval_delta
             end += (progress_delta + interval_delta)
 
-        self.output(f"历史数据加载完成，合约1数据量：{len(self.history_data_dom)}，合约2数据量{len(self.history_data_sub)}")
+        self.output(f"历史数据加载完成，{self.symbol_dom}数据量：{len(self.history_data_dom)}，{self.symbol_sub}数据量{len(self.history_data_sub)}")
 
     def run_backtesting(self):
 
@@ -249,6 +249,28 @@ class BacktestingEngine:
         data_dom_index = 0
         data_sub_index = 0
         while data_dom_index < len(self.history_data_dom) or data_sub_index < len(self.history_data_sub):
+            # dom已经全部回放完毕
+            if data_dom_index >= len(self.history_data_dom):
+                data_sub = self.history_data_sub[data_sub_index]
+                try:
+                    self.new_tick(data_sub)
+                    data_sub_index += 1
+                    continue
+                except Exception:
+                    self.output("推送tick时触发异常，回测终止")
+                    self.output(traceback.format_exc())
+                    return
+            # sub已经回放完毕
+            if data_sub_index >= len(self.history_data_sub):
+                data_dom = self.history_data_dom[data_dom_index]
+                try:
+                    self.new_tick(data_dom)
+                    data_dom_index += 1
+                    continue
+                except Exception:
+                    self.output("推送tick时触发异常，回测终止")
+                    self.output(traceback.format_exc())
+                    return
             data_dom = self.history_data_dom[data_dom_index]
             data_sub = self.history_data_sub[data_sub_index]
             # 按时间顺序先推先到的
@@ -920,6 +942,7 @@ class BacktestingEngine:
     def send_order(
         self,
         strategy: StrategyTemplate,
+        symbol: str,
         direction: Direction,
         offset: Offset,
         price: float,
@@ -928,11 +951,12 @@ class BacktestingEngine:
     ):
         """"""
         price = round_to(price, self.pricetick)
-        vt_orderid = self.send_limit_order(direction, offset, price, volume)
+        vt_orderid = self.send_limit_order(symbol, direction, offset, price, volume)
         return [vt_orderid]
 
     def send_limit_order(
         self,
+        symbol: str,
         direction: Direction,
         offset: Offset,
         price: float,
@@ -942,7 +966,7 @@ class BacktestingEngine:
         self.limit_order_count += 1
 
         order = OrderData(
-            symbol=self.symbol,
+            symbol=symbol,
             exchange=self.exchange,
             orderid=str(self.limit_order_count),
             direction=direction,
