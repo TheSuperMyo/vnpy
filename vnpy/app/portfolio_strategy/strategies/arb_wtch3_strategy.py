@@ -4,7 +4,6 @@ from datetime import datetime, time
 import numpy as np
 
 from vnpy.app.portfolio_strategy import StrategyTemplate, StrategyEngine
-#from vnpy.trader.utility import BarGenerator
 from vnpy.trader.object import TickData, BarData, ContractData, TradeData
 import talib
 from collections import deque

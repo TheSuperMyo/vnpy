@@ -133,7 +133,7 @@ class BacktestingEngine:
         self.limit_orders = {}
         self.active_limit_orders = {}
         self.limit_que = {}
-        self.limit_que_last_tick_vol ={}
+        self.limit_que_last_tick ={}
 
         self.trade_count = 0
         self.trades = {}
@@ -155,7 +155,7 @@ class BacktestingEngine:
         self.limit_orders.clear()
         self.active_limit_orders.clear()
         self.limit_que.clear()
-        self.limit_que_last_tick_vol ={}
+        self.limit_que_last_tick.clear()
 
         self.trade_count = 0
         self.trades.clear()
@@ -246,20 +246,17 @@ class BacktestingEngine:
         self.strategy.trading = True
         self.output("开始回放历史数据")
 
-        # Use the rest of history data for running backtesting
         data_dom_index = 0
         data_sub_index = 0
         while data_dom_index < len(self.history_data_dom) or data_sub_index < len(self.history_data_sub):
             data_dom = self.history_data_dom[data_dom_index]
             data_sub = self.history_data_sub[data_sub_index]
-            data_dom_index += 1
-            data_sub_index += 1
             # 按时间顺序先推先到的
             # 行情产生时间一样，实盘按字母顺序
             if data_dom.datetime > data_sub.datetime:
                 try:
                     self.new_tick(data_sub)
-                    self.new_tick(data_dom)
+                    data_sub_index += 1
                 except Exception:
                     self.output("推送tick时触发异常，回测终止")
                     self.output(traceback.format_exc())
@@ -268,7 +265,7 @@ class BacktestingEngine:
             else:
                 try:
                     self.new_tick(data_dom)
-                    self.new_tick(data_sub)
+                    data_dom_index += 1
                 except Exception:
                     self.output("推送tick时触发异常，回测终止")
                     self.output(traceback.format_exc())
@@ -789,30 +786,13 @@ class BacktestingEngine:
         self.strategy.on_tick(tick)
         self.update_daily_close(tick.last_price)
 
-    def update_que(self):
-        for order in list(self.active_limit_orders.values()):
-            if order.vt_symbol != self.tick.vt_symbol:
-                continue
-            # 从未计算排队位置的新订单
-            if self.limit_que[order.vt_orderid] == LQ:
-                if order.Direction.LONG and self.tick.bid_price_1 == order.price:
-                    self.limit_que[order.vt_orderid] = self.tick.bid_volume_1
-                    self.limit_que_last_tick_vol[order.vt_orderid] = self.tick.bid_volume_1
-                if order.Direction.SHORT and self.tick.ask_price_1 == order.price:
-                    self.limit_que[order.vt_orderid] = self.tick.ask_volume_1
-                    self.limit_que_last_tick_vol[order.vt_orderid] = self.tick.ask_volume_1
-            else:
-                # 
-
     # 考虑限价单排队
     def cross_limit_order(self):
         """
         Cross limit order with last bar/tick data.
         """
-        long_cross_price = self.tick.ask_price_1
-        short_cross_price = self.tick.bid_price_1
-        long_best_price = long_cross_price
-        short_best_price = short_cross_price
+        long_best_price = self.tick.ask_price_1
+        short_best_price = self.tick.bid_price_1
 
         for order in list(self.active_limit_orders.values()):
             if order.vt_symbol != self.tick.vt_symbol:
@@ -824,20 +804,82 @@ class BacktestingEngine:
                 self.strategy.update_order(order)
 
             # Check whether limit orders can be filled.
+            # 检查价格(见价成交)
             long_cross = (
                 order.direction == Direction.LONG
-                and order.price >= long_cross_price
-                and long_cross_price > 0
+                and self.tick.ask_price_1 > 0
+                and order.price > self.tick.bid_price_1
             )
 
             short_cross = (
                 order.direction == Direction.SHORT
-                and order.price <= short_cross_price
-                and short_cross_price > 0
+                and self.tick.bid_price_1 > 0
+                and order.price < self.tick.ask_price_1
             )
 
+            # 见价成交无法成交
             if not long_cross and not short_cross:
-                continue
+                # 检查限价单队列（认为排在你之前的人都不撤单）
+                # 从未计算排队位置的新订单
+                if self.limit_que[order.vt_orderid] == LQ:
+                    if order.direction == Direction.LONG:
+                        # 从五档里匹配对应价格的排队位置
+                        if self.tick.bid_price_1 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_1
+                        elif self.tick.bid_price_2 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_2
+                        elif self.tick.bid_price_3 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_3
+                        elif self.tick.bid_price_4 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_4
+                        elif self.tick.bid_price_5 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_5
+                    if order.direction == Direction.SHORT:
+                        if self.tick.ask_price_1 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_1
+                        elif self.tick.ask_price_2 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_2
+                        elif self.tick.ask_price_3 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_3
+                        elif self.tick.ask_price_4 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_4
+                        elif self.tick.ask_price_5 == order.price:
+                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_5
+                    # 记录当前tick，用于更新排队位置
+                    self.limit_que_last_tick[order.vt_orderid] = self.tick
+                    long_que = False
+                    short_que = False
+                # 已经在排队的老订单更新排队位置
+                elif self.limit_que[order.vt_orderid] > 0:
+                    # 只有订单在一档了才更新（认为排在你之前的人都不撤单）
+                    if order.direction == Direction.LONG and self.tick.bid_price_1 == order.price:
+                        # 订单首次到达一档或再次到达一档
+                        if self.limit_que_last_tick[order.vt_orderid].bid_price_1 != order.price:
+                            # 处理进入一档队列最差位置仍然优于之前的情况
+                            self.limit_que[order.vt_orderid] = min(self.limit_que[order.vt_orderid], self.tick.bid_volume_1)
+                        # 连续在一档排队且最新价在一档
+                        elif self.tick.last_price == self.tick.bid_price_1:
+                            # 一档挂单量变化，只取非正数（认为一档挂单若减少且减少不超过现手部分即为排队靠前订单成交）
+                            delta_v = min(0, self.tick.bid_volume_1 - self.limit_que_last_tick[order.vt_orderid].bid_volume_1)
+                            # 考虑现手
+                            self.limit_que[order.vt_orderid] += max(delta_v, -self.tick.last_volume)
+                    if order.direction == Direction.SHORT and self.tick.ask_price_1 == order.price:
+                        if self.limit_que_last_tick[order.vt_orderid].ask_price_1 != order.price:
+                            self.limit_que[order.vt_orderid] = min(self.limit_que[order.vt_orderid], self.tick.ask_volume_1)
+                        elif self.tick.last_price == self.tick.ask_price_1:
+                            delta_v = min(0, self.tick.ask_volume_1 - self.limit_que_last_tick[order.vt_orderid].ask_volume_1)
+                            self.limit_que[order.vt_orderid] += max(delta_v, -self.tick.last_volume)
+                    # 记录并判断
+                    self.limit_que_last_tick[order.vt_orderid] = self.tick
+                    long_que = (order.direction == Direction.LONG and self.limit_que[order.vt_orderid] <= 0)
+                    short_que = (order.direction == Direction.SHORT and self.limit_que[order.vt_orderid] <= 0)
+                else:
+                    long_que = (order.direction == Direction.LONG and self.limit_que[order.vt_orderid] <= 0)
+                    short_que = (order.direction == Direction.SHORT and self.limit_que[order.vt_orderid] <= 0)
+                
+                # 排队被动成交也无法成交
+                if not long_que and not short_que: 
+                    continue
 
             # Push order udpate with status "all traded" (filled).
             order.traded = order.volume
@@ -847,14 +889,14 @@ class BacktestingEngine:
 
             self.active_limit_orders.pop(order.vt_orderid)
             self.limit_que.pop(order.vt_orderid)
-            self.limit_que_last_tick_vol.pop(order.vt_orderid)
+            self.limit_que_last_tick.pop(order.vt_orderid)
 
             # Push trade update
             self.trade_count += 1
 
-            if long_cross:
+            if long_cross or long_que:
                 trade_price = min(order.price, long_best_price)
-            else:
+            elif short_cross or short_que:
                 trade_price = max(order.price, short_best_price)
 
             trade = TradeData(
@@ -915,7 +957,7 @@ class BacktestingEngine:
         self.active_limit_orders[order.vt_orderid] = order
         self.limit_orders[order.vt_orderid] = order
         self.limit_que[order.vt_orderid] = LQ
-        self.limit_que_last_tick_vol[order.vt_orderid] = LQ
+        self.limit_que_last_tick[order.vt_orderid] = LQ
 
         return order.vt_orderid
 
@@ -925,7 +967,7 @@ class BacktestingEngine:
             return
         order = self.active_limit_orders.pop(vt_orderid)
         self.limit_que.pop(vt_orderid)
-        self.limit_que_last_tick_vol.pop(vt_orderid)
+        self.limit_que_last_tick.pop(vt_orderid)
 
         order.status = Status.CANCELLED
         #self.strategy.on_order(order)
