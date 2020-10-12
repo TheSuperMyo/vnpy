@@ -21,7 +21,6 @@ from vnpy.trader.object import OrderData, TradeData, BarData, TickData
 from vnpy.trader.utility import round_to
 
 from .base import (
-    BacktestingMode,
     EngineType,
     STOPORDER_PREFIX,
     StopOrder,
@@ -136,6 +135,8 @@ class BacktestingEngine:
         self.limit_que_last_tick ={}
 
         self.trade_count = 0
+        self.price_trade_count = 0
+        self.volume_trade_count = 0
         self.trades = {}
 
         self.logs = []
@@ -158,6 +159,8 @@ class BacktestingEngine:
         self.limit_que_last_tick.clear()
 
         self.trade_count = 0
+        self.price_trade_count = 0
+        self.volume_trade_count = 0
         self.trades.clear()
 
         self.logs.clear()
@@ -294,6 +297,7 @@ class BacktestingEngine:
                     return
 
         self.output("历史数据回放结束")
+        self.output(f"见价成交数量：{self.price_trade_count}  排队成交数量：{self.volume_trade_count}")
 
     def calculate_result(self):
         """"""
@@ -320,7 +324,7 @@ class BacktestingEngine:
                 self.size,
                 self.rate,
                 self.slippage,
-                self.inverse
+                False
             )
 
             pre_close = daily_result.close_price
@@ -628,7 +632,8 @@ class BacktestingEngine:
         # Use multiprocessing pool for running backtesting with different setting
         # Force to use spawn method to create new process (instead of fork on Linux)
         ctx = multiprocessing.get_context("spawn")
-        pool = ctx.Pool(multiprocessing.cpu_count())
+        #pool = ctx.Pool(multiprocessing.cpu_count())
+        pool = ctx.Pool(2)
 
         results = []
         for setting in settings:
@@ -636,16 +641,14 @@ class BacktestingEngine:
                 target_name,
                 self.strategy_class,
                 setting,
-                self.vt_symbol,
+                self.vt_symbols,
                 self.start,
                 self.rate,
                 self.slippage,
                 self.size,
                 self.pricetick,
                 self.capital,
-                self.end,
-                self.mode,
-                self.inverse
+                self.end
             )))
             results.append(result)
 
@@ -695,7 +698,7 @@ class BacktestingEngine:
         global ga_target_name
         global ga_strategy_class
         global ga_setting
-        global ga_vt_symbol
+        global ga_vt_symbols
         global ga_start
         global ga_rate
         global ga_slippage
@@ -703,13 +706,11 @@ class BacktestingEngine:
         global ga_pricetick
         global ga_capital
         global ga_end
-        global ga_mode
-        global ga_inverse
 
         ga_target_name = target_name
         ga_strategy_class = self.strategy_class
         ga_setting = settings[0]
-        ga_vt_symbol = self.vt_symbol
+        ga_vt_symbols = self.vt_symbols
         ga_start = self.start
         ga_rate = self.rate
         ga_slippage = self.slippage
@@ -717,8 +718,6 @@ class BacktestingEngine:
         ga_pricetick = self.pricetick
         ga_capital = self.capital
         ga_end = self.end
-        ga_mode = self.mode
-        ga_inverse = self.inverse
 
         # Set up genetic algorithem
         toolbox = base.Toolbox()
@@ -838,6 +837,8 @@ class BacktestingEngine:
                 and self.tick.bid_price_1 > 0
                 and order.price < self.tick.ask_price_1
             )
+            long_que = False
+            short_que = False
 
             # 见价成交无法成交
             if not long_cross and not short_cross:
@@ -869,8 +870,6 @@ class BacktestingEngine:
                             self.limit_que[order.vt_orderid] = self.tick.ask_volume_5
                     # 记录当前tick，用于更新排队位置
                     self.limit_que_last_tick[order.vt_orderid] = self.tick
-                    long_que = False
-                    short_que = False
                 # 已经在排队的老订单更新排队位置
                 elif self.limit_que[order.vt_orderid] > 0:
                     # 只有订单在一档了才更新（认为排在你之前的人都不撤单）
@@ -902,7 +901,13 @@ class BacktestingEngine:
                 # 排队被动成交也无法成交
                 if not long_que and not short_que: 
                     continue
-
+                else:
+                    print("排队成交")
+                    self.volume_trade_count += 1
+            else:
+                print("见价成交")
+                self.price_trade_count += 1
+        
             # Push order udpate with status "all traded" (filled).
             order.traded = order.volume
             order.status = Status.ALLTRADED
@@ -942,7 +947,7 @@ class BacktestingEngine:
     def send_order(
         self,
         strategy: StrategyTemplate,
-        symbol: str,
+        vt_symbol: str,
         direction: Direction,
         offset: Offset,
         price: float,
@@ -951,6 +956,7 @@ class BacktestingEngine:
     ):
         """"""
         price = round_to(price, self.pricetick)
+        symbol = vt_symbol.split(".")[0]
         vt_orderid = self.send_limit_order(symbol, direction, offset, price, volume)
         return [vt_orderid]
 
@@ -1127,16 +1133,14 @@ def optimize(
     target_name: str,
     strategy_class: StrategyTemplate,
     setting: dict,
-    vt_symbol: str,
+    vt_symbols,
     start: datetime,
     rate: float,
     slippage: float,
     size: float,
     pricetick: float,
     capital: int,
-    end: datetime,
-    mode: BacktestingMode,
-    inverse: bool
+    end: datetime
 ):
     """
     Function for running in multiprocessing.pool
@@ -1144,16 +1148,14 @@ def optimize(
     engine = BacktestingEngine()
 
     engine.set_parameters(
-        vt_symbol=vt_symbol,
+        vt_symbols=vt_symbols,
         start=start,
         rate=rate,
         slippage=slippage,
         size=size,
         pricetick=pricetick,
         capital=capital,
-        end=end,
-        mode=mode,
-        inverse=inverse
+        end=end
     )
 
     engine.add_strategy(strategy_class, setting)
@@ -1175,16 +1177,14 @@ def _ga_optimize(parameter_values: tuple):
         ga_target_name,
         ga_strategy_class,
         setting,
-        ga_vt_symbol,
+        ga_vt_symbols,
         ga_start,
         ga_rate,
         ga_slippage,
         ga_size,
         ga_pricetick,
         ga_capital,
-        ga_end,
-        ga_mode,
-        ga_inverse
+        ga_end
     )
     return (result[1],)
 
@@ -1209,11 +1209,10 @@ def load_tick_data(
 
 # GA related global value
 ga_end = None
-ga_mode = None
 ga_target_name = None
 ga_strategy_class = None
 ga_setting = None
-ga_vt_symbol = None
+ga_vt_symbols = None
 ga_start = None
 ga_rate = None
 ga_slippage = None

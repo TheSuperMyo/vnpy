@@ -4,7 +4,7 @@ from datetime import datetime
 
 engine = BacktestingEngine()
 engine.set_parameters(
-    vt_symbols=["cu6666.SHFE","cu7777.SHFE"],
+    vt_symbols=["ni6666.SHFE","ni7777.SHFE"],
     start=datetime(2020, 8, 30),
     end=datetime(2020, 9, 12),
     rate=0.25/10000,
@@ -13,6 +13,8 @@ engine.set_parameters(
     pricetick=10,
     capital=500000
 )
+
+
 
 engine.add_strategy(ArbWtCh3Strategy, {
     'price_add': 1,
@@ -23,19 +25,16 @@ engine.add_strategy(ArbWtCh3Strategy, {
     'dom_symbol':1,
     'pricetick':10
     })
-
 engine.load_data()
 engine.run_backtesting()
 df = engine.calculate_result()
 engine.calculate_statistics()
-engine.show_chart()
+# engine.show_chart()
 
 # setting = OptimizationSetting()
 # setting.set_target("sharpe_ratio")
-# setting.add_parameter("atr_stop", 3, 6, 0.5) # 4
-# setting.add_parameter("trailing_short", 0.3, 0.6, 0.05) # 0.4
-# setting.add_parameter("trailing_long", 0.3, 0.6, 0.05) # 0.4
-# #setting.add_parameter("atr_window", 20, 60, 4) # 44
-# #setting.add_parameter("atr_ma_len", 10, 30, 2) # 22
+# setting.add_parameter("ema_window", 150, 210, 30) # 4
+# #setting.add_parameter("ema_th", 1.5, 2.5, 0.5) # 0.4
+# #setting.add_parameter("time_out", 90, 150, 30) # 0.4
 
 # engine.run_optimization(setting)
