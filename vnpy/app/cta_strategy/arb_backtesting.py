@@ -807,6 +807,27 @@ class BacktestingEngine:
         self.strategy.on_tick(tick)
         self.update_daily_close(tick.last_price)
 
+    # 估计两边盘口的成交量
+    def calc_tick_volume(self, tick, lasttick, size):
+        """计算两边盘口的成交量"""
+        currentVolume = tick.volume - lasttick.volume
+        currentTurnOver = tick.turnover - lasttick.turnover
+        pOnAsk = lasttick.ask_price_1
+        pOnBid = lasttick.bid_price_1
+
+        if lasttick and currentVolume > 0: 
+            avgPrice = currentTurnOver / currentVolume / size
+            ratio = (avgPrice - pOnBid) / (pOnAsk - pOnBid)
+            ratio = max(ratio, 0)
+            ratio = min(ratio, 1)
+            volOnAsk = ratio * currentVolume
+            volOnBid = currentVolume - volOnAsk
+        else:
+            volOnAsk = 0
+            volOnBid = 0
+
+        return volOnBid, volOnAsk
+
     # 考虑限价单排队
     def cross_limit_order(self):
         """
@@ -872,24 +893,24 @@ class BacktestingEngine:
                     self.limit_que_last_tick[order.vt_orderid] = self.tick
                 # 已经在排队的老订单更新排队位置
                 elif self.limit_que[order.vt_orderid] > 0:
-                    # 只有订单在一档了才更新（认为排在你之前的人都不撤单）
+                    # 只有订单在一档了才更新（认为进入一档后，你之前的人都不撤单）
                     if order.direction == Direction.LONG and self.tick.bid_price_1 == order.price:
                         # 订单首次到达一档或再次到达一档
                         if self.limit_que_last_tick[order.vt_orderid].bid_price_1 != order.price:
                             # 处理进入一档队列最差位置仍然优于之前的情况
                             self.limit_que[order.vt_orderid] = min(self.limit_que[order.vt_orderid], self.tick.bid_volume_1)
-                        # 连续在一档排队且最新价在一档
-                        elif self.tick.last_price == self.tick.bid_price_1:
-                            # 一档挂单量变化，只取非正数（认为一档挂单若减少且减少不超过现手部分即为排队靠前订单成交）
-                            delta_v = min(0, self.tick.bid_volume_1 - self.limit_que_last_tick[order.vt_orderid].bid_volume_1)
-                            # 考虑现手
-                            self.limit_que[order.vt_orderid] += max(delta_v, -self.tick.last_volume)
+                        # 连续在一档排队
+                        else:
+                            # 一档买卖成交量
+                            bid_v, ask_v = self.calc_tick_volume(self.tick, self.limit_que_last_tick[order.vt_orderid], self.size)
+                            # 更新排队位置
+                            self.limit_que[order.vt_orderid] -= bid_v
                     if order.direction == Direction.SHORT and self.tick.ask_price_1 == order.price:
                         if self.limit_que_last_tick[order.vt_orderid].ask_price_1 != order.price:
                             self.limit_que[order.vt_orderid] = min(self.limit_que[order.vt_orderid], self.tick.ask_volume_1)
-                        elif self.tick.last_price == self.tick.ask_price_1:
-                            delta_v = min(0, self.tick.ask_volume_1 - self.limit_que_last_tick[order.vt_orderid].ask_volume_1)
-                            self.limit_que[order.vt_orderid] += max(delta_v, -self.tick.last_volume)
+                        else:
+                            bid_v, ask_v = self.calc_tick_volume(self.tick, self.limit_que_last_tick[order.vt_orderid], self.size)
+                            self.limit_que[order.vt_orderid] -= ask_v
                     # 记录并判断
                     self.limit_que_last_tick[order.vt_orderid] = self.tick
                     long_que = (order.direction == Direction.LONG and self.limit_que[order.vt_orderid] <= 0)

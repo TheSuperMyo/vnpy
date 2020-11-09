@@ -40,6 +40,7 @@ class TickData(BaseData):
     turnover: float = 0
     last_price: float = 0
     last_volume: float = 0
+    last_amount: float = 0
     limit_up: float = 0
     limit_down: float = 0
 
