@@ -298,11 +298,11 @@ class CtaEngine(BaseEngine):
                 contract = self.main_engine.get_contract(stop_order.vt_symbol)
 
                 # 对于不支持停止单的合约使用了本地停止单（到价格发一个限价单），但是。。。
-                # 本地停止单用涨跌停太刺激了，ctp又没提供5盘价改为1价2跳吧
+                # 本地停止单用涨跌停太刺激了，ctp又没提供5盘价改为1价10跳吧
                 if stop_order.direction == Direction.LONG:
-                    price = tick.ask_price_1 + 2*contract.pricetick
+                    price = tick.ask_price_1 + 10*contract.pricetick
                 else:
-                    price = tick.bid_price_1 - 2*contract.pricetick
+                    price = tick.bid_price_1 - 10*contract.pricetick
 
                 vt_orderids = self.send_limit_order(
                     strategy,

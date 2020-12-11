@@ -36,9 +36,9 @@ class TSMyoRBKMANStrategy(CtaTemplate):
 
     fixed_size = 1
     donchian_window = 30
-    atr_stop = 4
-    atr_window = 35
-    atr_ma_len = 20
+    atr_stop = 5
+    atr_window = 70
+    atr_ma_len = 25
 
     trailing_stop = 0.6
     multiplier = 1
@@ -68,6 +68,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
     set_yd_close = 0.0
 
     exit_time = time(hour=14, minute=56)
+    stop_open_time = time(hour=14, minute=0)
 
     # 针对不同交易时间的市场
     open_time_night = time(hour=21,minute=0)# 商品夜盘
@@ -94,7 +95,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.bg = BarGenerator(self.on_bar)
-        self.am = ArrayManager()
+        self.am = ArrayManager(200)
         self.bars = []
         self.vt_orderids = []
 
@@ -103,7 +104,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
         Callback when strategy is inited.
         """
         self.write_log("策略初始化")
-        self.load_bar(5)
+        self.load_bar(10)
         
     def on_start(self):
         """
@@ -214,7 +215,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
         # 交易时间
         if (bar.datetime.time() < self.exit_time):
             # 设置ATR过滤，只有波动扩大才开仓
-            if self.pos == 0 and self.atr_value > self.atr_ma_value:
+            if self.pos == 0 and self.atr_value > self.atr_ma_value and (bar.datetime.time() < self.stop_open_time):
                 self.write_log( f"波动扩大：{self.atr_value} > {self.atr_ma_value}" )
                 self.intra_trade_low = bar.low_price
                 self.intra_trade_high = bar.high_price
@@ -302,7 +303,7 @@ class TSMyoRBKMANStrategy(CtaTemplate):
         """
         self.td_traded += 1
         self.write_log(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
-        self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
+        #self.send_email(f"{trade.vt_symbol}在{trade.time}成交，价格{trade.price}，方向{trade.direction}{trade.offset}，数量{trade.volume}")
         self.put_event()
 
     def on_stop_order(self, stop_order: StopOrder):

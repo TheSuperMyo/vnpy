@@ -196,12 +196,5 @@ class TSMArrayManager(ArrayManager):
         if array:
             return result
         return result[-1]
-
-    def tr(self, array=False):
-        """ 真实波幅 """
-        result = talib.TRANGE(self.high, self.low, self.close)
-        if array:
-            return result
-        return result[-1]
     
 
