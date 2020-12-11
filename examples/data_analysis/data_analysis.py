@@ -88,14 +88,16 @@ class DataAnalysis:
         l = []  # noqa
         c = []
         v = []
+        r = []
 
-        for bar in bars:
-            time = bar.datetime
-            open_price = bar.open_price
-            high_price = bar.high_price
-            low_price = bar.low_price
-            close_price = bar.close_price
-            volume = bar.volume
+        for i in range(1,len(bars)):
+            time = bars[i].datetime
+            open_price = bars[i].open_price
+            high_price = bars[i].high_price
+            low_price = bars[i].low_price
+            close_price = bars[i].close_price
+            volume = bars[i].volume
+            ret = np.log(bars[i]/bars[i-1])
 
             t.append(time)
             o.append(open_price)
@@ -103,14 +105,15 @@ class DataAnalysis:
             l.append(low_price)
             c.append(close_price)
             v.append(volume)
+            r.append(ret)
 
         self.orignal["open"] = o
         self.orignal["high"] = h
         self.orignal["low"] = l
         self.orignal["close"] = c
         self.orignal["volume"] = v
-        self.orignal.index = t
-        #self.orignal["time"] = t
+        self.orignal["time"] = t
+        self.orignal["return"] = r
 
     def base_analysis(self, df: DataFrame = None):
         """"""
@@ -120,24 +123,34 @@ class DataAnalysis:
         if df is None:
             output("数据为空，请输入数据")
 
-        close_price = df["close"]
+        output("检验空值")
+        nan_num = df.isnull().sum()
+        output(f"总体空值为 {nan_num}")
 
-        output("第一步:画出行情图，检查数据断点")
+        close_price = df["close"]
+        retrun_series = df["return"]
+
+        output("画出收盘价行情图，检查数据断点")
 
         #close_price.plot(figsize=(20, 8), title="close_price")
         plt.figure(figsize=(20,8))
-        plt.plot(range(0,len(close_price)),close_price)
+        plt.plot(range(0,len(close_price)), close_price, title="close_price")
         plt.show()
 
-        random_test(close_price)
-        stability_test(close_price)
-        autocorrelation_test(close_price)
+        output("画出收益率图，检查数据断点")
+        plt.figure(figsize=(20,8))
+        plt.plot(range(0,len(retrun_series)), retrun_series, title="retrun_series")
+        plt.show()
 
-        self.relative_volatility_analysis(df)
-        self.growth_analysis(df)
-        self.trend_analysis(df)
 
-        self.calculate_index(df)
+        random_test(retrun_series)
+        stability_test(retrun_series)
+        autocorrelation_test(retrun_series)
+        self.relative_volatility_analysis(retrun_series)
+        #self.growth_analysis(df)
+        #self.trend_analysis(df)
+
+        #self.calculate_index(df)
 
         return df
 
@@ -332,39 +345,39 @@ class DataAnalysis:
             plt.plot(range(0,len(value)),value)
             plt.show()
 
-def random_test(close_price):
+def random_test(retrun_series):
     """"""
-    acorr_result = acorr_ljungbox(close_price, lags=1)
+    acorr_result = acorr_ljungbox(retrun_series, lags=1)
     p_value = acorr_result[1]
     if p_value < 0.05:
-        output("第二步：随机性检验：非纯随机性")
+        output("随机性检验：非纯随机性")
     else:
-        output("第二步：随机性检验：纯随机性")
+        output("随机性检验：纯随机性")
     output(f"白噪声检验结果:{acorr_result}\n")
 
 
-def stability_test(close_price):
+def stability_test(retrun_series):
     """"""
-    statitstic = ADF(close_price)
+    statitstic = ADF(retrun_series)
     t_s = statitstic[1]
-    t_c = statitstic[4]["10%"]
+    t_c = statitstic[4]["5%"]
 
     if t_s > t_c:
-        output("第三步：平稳性检验：存在单位根，时间序列不平稳")
+        output("平稳性检验：存在单位根，时间序列不平稳")
     else:
-        output("第三步：平稳性检验：不存在单位根，时间序列平稳")
+        output("平稳性检验：不存在单位根，时间序列平稳")
 
     output(f"ADF检验结果：{statitstic}\n")
 
 
-def autocorrelation_test(close_price):
+def autocorrelation_test(retrun_series):
     """"""
-    output("第四步：画出自相关性图，观察自相关特性")
+    output("画出自相关性图，观察自相关特性")
 
-    plot_acf(close_price, lags=60)
+    plot_acf(retrun_series, lags=60)
     plt.show()
 
-    plot_pacf(close_price, lags=60).show()
+    plot_pacf(retrun_series, lags=60).show()
     plt.show()
 
 

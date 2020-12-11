@@ -6,12 +6,14 @@ from functools import lru_cache
 from time import time
 import multiprocessing
 import random
+import traceback
 
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pandas import DataFrame
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from deap import creator, base, tools, algorithms
+from itertools import combinations
 
 from vnpy.trader.constant import (Direction, Offset, Exchange,
                                   Interval, Status)
@@ -29,7 +31,8 @@ from .base import (
 )
 from .template import CtaTemplate
 
-sns.set_style("whitegrid")
+
+# Set deap algo
 creator.create("FitnessMax", base.Fitness, weights=(1.0,))
 creator.create("Individual", list, fitness=creator.FitnessMax)
 
@@ -269,7 +272,7 @@ class BacktestingEngine:
         self.strategy.on_init()
 
         # Use the first [days] of history data for initializing strategy
-        day_count = 0
+        day_count = 1
         ix = 0
 
         for ix, data in enumerate(self.history_data):
@@ -279,7 +282,13 @@ class BacktestingEngine:
                     break
 
             self.datetime = data.datetime
-            self.callback(data)
+
+            try:
+                self.callback(data)
+            except Exception:
+                self.output("触发异常，回测终止")
+                self.output(traceback.format_exc())
+                return
 
         self.strategy.inited = True
         self.output("策略初始化完成")
@@ -290,7 +299,12 @@ class BacktestingEngine:
 
         # Use the rest of history data for running backtesting
         for data in self.history_data[ix:]:
-            func(data)
+            try:
+                func(data)
+            except Exception:
+                self.output("触发异常，回测终止")
+                self.output(traceback.format_exc())
+                return
 
         self.output("历史数据回放结束")
 
@@ -336,6 +350,70 @@ class BacktestingEngine:
 
         self.output("逐日盯市盈亏计算完成")
         return self.daily_df
+
+    def calc_pbo(self, op_re:list, s=10):
+        # 计算过拟合概率 PBO
+        
+        # 获取各参数的每日收益率，建立DataFrame
+        setting_returcn_dict = {}
+        for re in op_re:
+            setting_returcn_dict[re[0]] = re[3]['return']
+        df = pd.DataFrame.from_dict(setting_returcn_dict)
+        
+        # 收益率时序切分为 S 份，每份包含 T/S 日收益率
+        df = df.reset_index()
+        num = pd.cut(df.index,bins=s, labels=range(0, s))
+        df['num'] = num
+        # 组合
+        comb_list = list(combinations(range(0,s), int(s/2)))
+        print(f"从总样本内（共{s}段）取{int(s/2)}段数据组成样本内，共有{len(comb_list)}种取法")
+                        
+        # 对于每种取样方法计算 样本内最优参数 在样本外不及中位数概率
+        pbo_yes = 0 # 样本外表现不及中位数
+        pbo_no = 0 # 样本外表现优于中位数
+        for comb in comb_list:
+            is_setting_sharpe_dict = {}
+            os_setting_sharpe_dict = {}
+            is_df = pd.DataFrame()
+            os_df = pd.DataFrame()
+            # 组成样本内外的 DataFrame
+            for name,group in df.groupby('num'):
+                if name in comb:
+                    is_df = is_df.append(group)
+                else:
+                    os_df = os_df.append(group)
+            #print(f"对于取样方式{comb}")
+            #print(f"样本内长度{len(is_df)}")
+            #print(f"样本外长度{len(os_df)}")
+            is_df = is_df.drop(['num','date'],axis=1)
+            os_df = os_df.drop(['num','date'],axis=1)
+            
+            # 样本内外分别计算夏普，并保存排序
+            for col in is_df.columns:
+                is_setting_sharpe_dict[col] = (is_df[col].mean() - (0.04/240))/ is_df[col].std() * np.sqrt(240)
+            for col in os_df.columns:
+                os_setting_sharpe_dict[col] = (os_df[col].mean() - (0.04/240))/ os_df[col].std() * np.sqrt(240)
+            is_setting_sharpe_dict_list= sorted(is_setting_sharpe_dict.items(),key=lambda x:x[1])
+            os_setting_sharpe_dict_list= sorted(os_setting_sharpe_dict.items(),key=lambda x:x[1])
+            #print(f"此次样本内参数排序{is_setting_sharpe_dict_list}")
+            #print(f"此次样本外参数排序{os_setting_sharpe_dict_list}")
+            
+            # 找到样本内最优在样本外的表现 是否优于 所有参数表现的中位数
+            index_os = 1
+            for os_kv in os_setting_sharpe_dict_list:
+                # 找样本内最优参数在样本外对应的排序
+                if os_kv[0] == is_setting_sharpe_dict_list[-1][0]:
+                    break
+                else:
+                    index_os += 1
+            w = index_os/len(os_setting_sharpe_dict_list)
+            print(f"样本内组合为{comb}时，样本内最优参数在样本外相对排名 W （0,1）越大说明在样本外越优秀：{w}")
+            if w < 0.5:
+                pbo_yes += 1
+            else:
+                pbo_no += 1
+        print(f"经计算，过拟合概率PBO为：{pbo_yes/(pbo_yes+pbo_no)}")
+        return pbo_yes/(pbo_yes+pbo_no)
 
     def calculate_statistics(self, df: DataFrame = None, output=True):
         """"""
@@ -396,8 +474,12 @@ class BacktestingEngine:
             max_drawdown = df["drawdown"].min()
             max_ddpercent = df["ddpercent"].min()
             max_drawdown_end = df["drawdown"].idxmin()
-            max_drawdown_start = df["balance"][:max_drawdown_end].argmax()
-            max_drawdown_duration = (max_drawdown_end - max_drawdown_start).days
+
+            if isinstance(max_drawdown_end, date):
+                max_drawdown_start = df["balance"][:max_drawdown_end].idxmax()
+                max_drawdown_duration = (max_drawdown_end - max_drawdown_start).days
+            else:
+                max_drawdown_duration = 0
 
             total_net_pnl = df["net_pnl"].sum()
             daily_net_pnl = total_net_pnl / total_days
@@ -420,7 +502,7 @@ class BacktestingEngine:
             return_std = df["return"].std() * 100
 
             if return_std:
-                sharpe_ratio = daily_return / return_std * np.sqrt(240)
+                sharpe_ratio = (daily_return - (4/240))/ return_std * np.sqrt(240)
             else:
                 sharpe_ratio = 0
 
@@ -491,6 +573,13 @@ class BacktestingEngine:
             "return_drawdown_ratio": return_drawdown_ratio,
         }
 
+        # Filter potential error infinite value
+        for key, value in statistics.items():
+            if value in (np.inf, -np.inf):
+                value = 0
+            statistics[key] = np.nan_to_num(value)
+
+        self.output("策略统计指标计算完成")
         return statistics
 
     def show_chart(self, df: DataFrame = None):
@@ -503,25 +592,37 @@ class BacktestingEngine:
         if df is None:
             return
 
-        plt.figure(figsize=(10, 16))
+        fig = make_subplots(
+            rows=4,
+            cols=1,
+            subplot_titles=["Balance", "Drawdown", "Daily Pnl", "Pnl Distribution"],
+            vertical_spacing=0.06
+        )
 
-        balance_plot = plt.subplot(4, 1, 1)
-        balance_plot.set_title("Balance")
-        df["balance"].plot(legend=True)
+        balance_line = go.Scatter(
+            x=df.index,
+            y=df["balance"],
+            mode="lines",
+            name="Balance"
+        )
+        drawdown_scatter = go.Scatter(
+            x=df.index,
+            y=df["drawdown"],
+            fillcolor="red",
+            fill='tozeroy',
+            mode="lines",
+            name="Drawdown"
+        )
+        pnl_bar = go.Bar(y=df["net_pnl"], name="Daily Pnl")
+        pnl_histogram = go.Histogram(x=df["net_pnl"], nbinsx=100, name="Days")
 
-        drawdown_plot = plt.subplot(4, 1, 2)
-        drawdown_plot.set_title("Drawdown")
-        drawdown_plot.fill_between(range(len(df)), df["drawdown"].values)
+        fig.add_trace(balance_line, row=1, col=1)
+        fig.add_trace(drawdown_scatter, row=2, col=1)
+        fig.add_trace(pnl_bar, row=3, col=1)
+        fig.add_trace(pnl_histogram, row=4, col=1)
 
-        pnl_plot = plt.subplot(4, 1, 3)
-        pnl_plot.set_title("Daily Pnl")
-        df["net_pnl"].plot(kind="bar", legend=False, grid=False, xticks=[])
-
-        distribution_plot = plt.subplot(4, 1, 4)
-        distribution_plot.set_title("Daily Pnl Distribution")
-        df["net_pnl"].hist(bins=50)
-
-        plt.show()
+        fig.update_layout(height=1000, width=1000)
+        fig.show()
 
     def run_optimization(self, optimization_setting: OptimizationSetting, output=True):
         """"""
@@ -538,7 +639,9 @@ class BacktestingEngine:
             return
 
         # Use multiprocessing pool for running backtesting with different setting
-        pool = multiprocessing.Pool(multiprocessing.cpu_count())
+        # Force to use spawn method to create new process (instead of fork on Linux)
+        ctx = multiprocessing.get_context("spawn")
+        pool = ctx.Pool(multiprocessing.cpu_count())
 
         results = []
         for setting in settings:
@@ -797,10 +900,9 @@ class BacktestingEngine:
                 offset=order.offset,
                 price=trade_price,
                 volume=order.volume,
-                time=self.datetime.strftime("%H:%M:%S"),
+                datetime=self.datetime,
                 gateway_name=self.gateway_name,
             )
-            trade.datetime = self.datetime
 
             self.strategy.pos += pos_change
             self.strategy.on_trade(trade)
@@ -850,8 +952,8 @@ class BacktestingEngine:
                 volume=stop_order.volume,
                 status=Status.ALLTRADED,
                 gateway_name=self.gateway_name,
+                datetime=self.datetime
             )
-            order.datetime = self.datetime
 
             self.limit_orders[order.vt_orderid] = order
 
@@ -874,10 +976,9 @@ class BacktestingEngine:
                 offset=order.offset,
                 price=trade_price,
                 volume=order.volume,
-                time=self.datetime.strftime("%H:%M:%S"),
+                datetime=self.datetime,
                 gateway_name=self.gateway_name,
             )
-            trade.datetime = self.datetime
 
             self.trades[trade.vt_tradeid] = trade
 
@@ -975,8 +1076,8 @@ class BacktestingEngine:
             volume=volume,
             status=Status.SUBMITTING,
             gateway_name=self.gateway_name,
+            datetime=self.datetime
         )
-        order.datetime = self.datetime
 
         self.active_limit_orders[order.vt_orderid] = order
         self.limit_orders[order.vt_orderid] = order
@@ -1046,6 +1147,12 @@ class BacktestingEngine:
         Return engine type.
         """
         return self.engine_type
+
+    def get_pricetick(self, strategy: CtaTemplate):
+        """
+        Return contract pricetick data.
+        """
+        return self.pricetick
 
     def put_strategy_event(self, strategy: CtaTemplate):
         """
@@ -1204,11 +1311,11 @@ def optimize(
     engine.add_strategy(strategy_class, setting)
     engine.load_data()
     engine.run_backtesting()
-    engine.calculate_result()
+    result_df = engine.calculate_result()
     statistics = engine.calculate_statistics(output=False)
 
     target_value = statistics[target_name]
-    return (str(setting), target_value, statistics)
+    return (str(setting), target_value, statistics, result_df)
 
 
 @lru_cache(maxsize=1000000)

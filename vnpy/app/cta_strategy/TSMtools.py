@@ -9,6 +9,7 @@ from vnpy.trader.object import (
 )
 from vnpy.trader.constant import Interval
 import numpy as np
+import pandas as pd
 import talib
 
 class TSMBarGenerator(BarGenerator):
@@ -196,5 +197,143 @@ class TSMArrayManager(ArrayManager):
         if array:
             return result
         return result[-1]
+
+    def tr(self, array=False):
+        """ 真实波幅 """
+        result = talib.TRANGE(self.high, self.low, self.close)
+        if array:
+            return result
+        return result[-1]
+
+    def polyfit(self, n):
+        """ 一二阶拟合斜率 """
+        Y = self.close[-n:] - np.mean(self.close[-n:])  #去中心化处理,作为拟合用的因变量
+        X = np.linspace(1,len(Y),len(Y)) #拟合用的自变量
     
+        poly_1 = np.polyfit(X,Y,deg=1) #一阶拟合
+        poly_2 = np.polyfit(X,Y,deg=2) #二阶拟合
+
+        return poly_1[0], poly_2[0]
+
+    def er(self, n, array=False):
+        """ ER位移路程比 """
+        pre_close = np.zeros(self.size)
+        pre_n_close = np.zeros(self.size)
+        pre_cumsum = np.zeros(self.size)
+
+        pre_close[1:] = self.close[:-1]
+        pre_n_close[n:] = self.close[:-n]
+        # 计算单位周期位移
+        m1 = abs(self.close - pre_close)
+        # 计算n周期位移
+        x = abs(self.close - pre_n_close)
+        # 计算n周期单位位移加总（路程）
+        cumsum = np.cumsum(m1)
+        pre_cumsum[n:] = cumsum[:-n]
+        s = cumsum - pre_cumsum
+
+        ER = x/s        
+        if array:
+            return ER
+        return ER[-1]
+
+    def angle(self, n, array=False):
+        """ 线性回归角度 """
+        angle = talib.LINEARREG_SLOPE(self.close, n)   
+        if array:
+            return angle
+        return angle[-1]
+
+    def clfxc(self, n, array=False):
+        """缠论分型通道"""
+        clfx_high = np.zeros(self.size)
+        clfx_low = np.zeros(self.size)
+        clfx_high_index = []
+        clfx_low_index = []
+        
+        # 遍历，找到是分型点的index
+        for i in range(1,self.size-1):
+            if self.high[i]>self.high[i-1] and self.high[i]>self.high[i+1] and self.low[i]>self.low[i-1] and self.low[i]>self.low[i+1]:
+                clfx_high_index.append(i)
+            elif self.high[i]<self.high[i-1] and self.high[i]<self.high[i+1] and self.low[i]<self.low[i-1] and self.low[i]<self.low[i+1]:
+                clfx_low_index.append(i)
+        # 填充“当前时点最近一个分型值”数组
+        print(clfx_high_index)
+        for i in range(len(clfx_high_index)-1):
+            clfx_high[clfx_high_index[i]:clfx_high_index[i+1]] = self.high[clfx_high_index[i]]
+        if len(clfx_high_index) >= 2:
+            clfx_high[clfx_high_index[-1]:] = self.high[clfx_high_index[-1]]
+
+        for i in range(len(clfx_low_index)-1):
+            clfx_low[clfx_low_index[i]:clfx_low_index[i+1]] = self.low[clfx_low_index[i]]
+        if len(clfx_low_index) >= 2:
+            clfx_low[clfx_low_index[-1]:] = self.low[clfx_low_index[-1]]
+        # 窗口期内最大分型点的数值构成通道上下轨
+        up = talib.MAX(clfx_high, n)
+        down = talib.MIN(clfx_low, n)
+
+        if array:
+            return up, down
+        return up[-1], down[-1]
+
+    def LLT(self, n, array=False):
+        """广发低延时均线"""
+        LLT = np.zeros(self.size)
+        LLT[:3] = self.close[:3]
+        a = 2/(n+1)
+        """LLT(T) = (a - a**2/4)*p(T) + (a**2/2)*p(T-1)
+					- (a - 3a**2/4)*p(T-2) + 2(1-a)*LLT(T-1)
+					- (1-a)**2*LLT(T-2)   T>=3
+			LLT(T) = p(T)  0<T<=2
+			a = 2/(d+1)"""
+        for i in range(3,self.size):
+            LLT[i] = (a-(a**2)/4)*self.close[i] + (a**2/2)*self.close[i-1] - (a-3*(a**2)/4)*self.close[i-2] + 2*(1-a)*LLT[i-1] - (1-a)**2*LLT[i-2]
+
+        if array:
+            return LLT
+        return LLT[-1]
+
+    def bias_SMA_Accumulated_signal(self, ma_len, window_len, std_n, array=False):
+        """价格-均线l窗口std通道信号"""
+        signal = np.zeros(self.size)
+        bias = self.close - talib.SMA(self.close, ma_len)
+        bias_Accu = talib.SUM(bias, window_len)
+        bias_var = talib.VAR(bias, ma_len)
+        bias_Accu_std = talib.SQRT(talib.SUM(bias_var, window_len))
+
+        for i in range(self.size):
+            if bias_Accu[i] > std_n * bias_Accu_std[i]:
+                signal[i] = 1
+            elif bias_Accu[i] < -1 * std_n * bias_Accu_std[i]:
+                signal[i] = -1
+            else:
+                signal[i] = 0
+        
+        if array:
+            return signal
+        return signal[-1]
+
+    def higher_order_moment(self, moment_order, n, array=False):
+        """因为收益率均值较小，此处返回高阶原点矩"""
+        # 对数收益率序列，长度size-1
+        log_r = self.log_return(True)
+        # 原点矩
+        result = talib.SUM(log_r**moment_order, n)/n
+
+        if array:
+            return result
+        return result[-1]
+        
+        
+        
+
+        
+        
+
+
+        
+
+            
+                
+        
 

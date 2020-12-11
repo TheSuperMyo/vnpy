@@ -1,6 +1,9 @@
+import csv
+from datetime import datetime, timedelta
+from tzlocal import get_localzone
+
 import numpy as np
 import pyqtgraph as pg
-from datetime import datetime, timedelta
 
 from vnpy.trader.constant import Interval, Direction, Offset
 from vnpy.trader.engine import MainEngine
@@ -46,6 +49,7 @@ class BacktesterManager(QtWidgets.QWidget):
         self.register_event()
         self.backtester_engine.init_engine()
         self.init_strategy_settings()
+        self.load_backtesting_setting()
 
     def init_strategy_settings(self):
         """"""
@@ -219,7 +223,8 @@ class BacktesterManager(QtWidgets.QWidget):
         # Code Editor
         self.editor = CodeEditor(self.main_engine, self.event_engine)
 
-        # Load setting
+    def load_backtesting_setting(self):
+        """"""
         setting = load_json(self.setting_filename)
         if not setting:
             return
@@ -411,8 +416,22 @@ class BacktesterManager(QtWidgets.QWidget):
         start_date = self.start_date_edit.date()
         end_date = self.end_date_edit.date()
 
-        start = datetime(start_date.year(), start_date.month(), start_date.day())
-        end = datetime(end_date.year(), end_date.month(), end_date.day(), 23, 59, 59)
+        start = datetime(
+            start_date.year(),
+            start_date.month(),
+            start_date.day(),
+            tzinfo=get_localzone()
+        )
+
+        end = datetime(
+            end_date.year(),
+            end_date.month(),
+            end_date.day(),
+            23,
+            59,
+            59,
+            tzinfo=get_localzone()
+        )
 
         self.backtester_engine.start_downloading(
             vt_symbol,
@@ -623,7 +642,16 @@ class BacktestingSettingEditor(QtWidgets.QDialog):
         button.clicked.connect(self.accept)
         form.addRow(button)
 
-        self.setLayout(form)
+        widget = QtWidgets.QWidget()
+        widget.setLayout(form)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(widget)
+
+        vbox = QtWidgets.QVBoxLayout()
+        vbox.addWidget(scroll)
+        self.setLayout(vbox)
 
     def get_setting(self):
         """"""
@@ -853,7 +881,16 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         ga_button.clicked.connect(self.generate_ga_setting)
         grid.addWidget(ga_button, row, 0, 1, 4)
 
-        self.setLayout(grid)
+        widget = QtWidgets.QWidget()
+        widget.setLayout(grid)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(widget)
+
+        vbox = QtWidgets.QVBoxLayout()
+        vbox.addWidget(scroll)
+        self.setLayout(vbox)
 
     def generate_ga_setting(self):
         """"""
@@ -917,6 +954,7 @@ class OptimizationResultMonitor(QtWidgets.QDialog):
         self.setWindowTitle("参数优化结果")
         self.resize(1100, 500)
 
+        # Creat table to show result
         table = QtWidgets.QTableWidget()
 
         table.setColumnCount(2)
@@ -943,10 +981,39 @@ class OptimizationResultMonitor(QtWidgets.QDialog):
             table.setItem(n, 0, setting_cell)
             table.setItem(n, 1, target_cell)
 
+        # Create layout
+        button = QtWidgets.QPushButton("保存")
+        button.clicked.connect(self.save_csv)
+
+        hbox = QtWidgets.QHBoxLayout()
+        hbox.addStretch()
+        hbox.addWidget(button)
+
         vbox = QtWidgets.QVBoxLayout()
         vbox.addWidget(table)
+        vbox.addLayout(hbox)
 
         self.setLayout(vbox)
+
+    def save_csv(self) -> None:
+        """
+        Save table data into a csv file
+        """
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "保存数据", "", "CSV(*.csv)")
+
+        if not path:
+            return
+
+        with open(path, "w") as f:
+            writer = csv.writer(f, lineterminator="\n")
+
+            writer.writerow(["参数", self.target_display])
+
+            for tp in self.result_values:
+                setting, target_value, _ = tp
+                row_data = [str(setting), str(target_value)]
+                writer.writerow(row_data)
 
 
 class BacktestingTradeMonitor(BaseMonitor):

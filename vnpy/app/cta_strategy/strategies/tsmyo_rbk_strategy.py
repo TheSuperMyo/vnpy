@@ -90,7 +90,7 @@ class TSMyoRBKStrategy(CtaTemplate):
             cta_engine, strategy_name, vt_symbol, setting
         )
         self.bg = BarGenerator(self.on_bar)
-        self.am = ArrayManager()
+        self.am = ArrayManager(200)
         self.bars = []
         self.vt_orderids = []
 
