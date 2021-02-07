@@ -12,7 +12,6 @@ import numpy as np
 from pandas import DataFrame
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from deap import creator, base, tools, algorithms
 from itertools import combinations
 
 from vnpy.trader.constant import (Direction, Offset, Exchange, Status)
@@ -27,16 +26,12 @@ from .base import (
     StopOrderStatus,
     INTERVAL_DELTA_MAP
 )
-from vnpy.app.portfolio_strategy.template import StrategyTemplate
+#from vnpy.app.portfolio_strategy.template import StrategyTemplate
+from .template import CtaTemplate
 
-
-# Set deap algo
-creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-creator.create("Individual", list, fitness=creator.FitnessMax)
 
 # 排队初始量
-LQ = 123456
-
+QUEUE_INIT = 123456
 
 class OptimizationSetting:
     """
@@ -90,15 +85,6 @@ class OptimizationSetting:
 
         return settings
 
-    def generate_setting_ga(self):
-        """"""
-        settings_ga = []
-        settings = self.generate_setting()
-        for d in settings:
-            param = [tuple(i) for i in d.items()]
-            settings_ga.append(param)
-        return settings_ga
-
 
 class BacktestingEngine:
     """"""
@@ -107,9 +93,8 @@ class BacktestingEngine:
 
     def __init__(self):
         """"""
-        self.vt_symbols = []
-        self.symbol_dom = ""
-        self.symbol_sub = ""
+        self.vt_symbol = ""
+        self.symbol = ""
         self.exchange = None
         self.start = None
         self.end = None
@@ -121,18 +106,18 @@ class BacktestingEngine:
 
         self.strategy_class = None
         self.strategy = None
-        self.tick: TickData
+        self.tick = None
+        self.last_tick = {}
         self.datetime = None
 
         self.callback = None
-        self.history_data_dom = []
-        self.history_data_sub = []
+        self.history_data = []
 
         self.limit_order_count = 0
         self.limit_orders = {}
         self.active_limit_orders = {}
-        self.limit_que = {}
-        self.limit_que_last_tick ={}
+        self.queue_num_map = {}
+        self.use_que = True
 
         self.trade_count = 0
         self.price_trade_count = 0
@@ -150,13 +135,13 @@ class BacktestingEngine:
         """
         self.strategy = None
         self.tick = None
+        self.last_tick = {}
         self.datetime = None
 
         self.limit_order_count = 0
         self.limit_orders.clear()
         self.active_limit_orders.clear()
-        self.limit_que.clear()
-        self.limit_que_last_tick.clear()
+        self.queue_num_map.clear()
 
         self.trade_count = 0
         self.price_trade_count = 0
@@ -168,7 +153,7 @@ class BacktestingEngine:
 
     def set_parameters(
         self,
-        vt_symbols,
+        vt_symbol: str,
         start,
         rate,
         slippage,
@@ -179,15 +164,14 @@ class BacktestingEngine:
     ):
         """"""
         
-        self.vt_symbols = vt_symbols
+        self.vt_symbol = vt_symbol
         self.rate = rate
         self.slippage = slippage
         self.size = size
         self.pricetick = pricetick
         self.start = start
 
-        self.symbol_dom, exchange_str = self.vt_symbols[0].split(".")
-        self.symbol_sub, exchange_str = self.vt_symbols[1].split(".")
+        self.symbol, exchange_str = self.vt_symbol.split(".")
         self.exchange = Exchange(exchange_str)
 
         self.capital = capital
@@ -196,7 +180,16 @@ class BacktestingEngine:
     def add_strategy(self, strategy_class: type, setting: dict):
         """"""
         self.strategy_class = strategy_class
-        self.strategy = strategy_class(self, strategy_class.__name__, self.vt_symbols, setting)
+        self.strategy = strategy_class(self, strategy_class.__name__, self.vt_symbol, setting)
+
+    def load_bar(
+        self,
+        vt_symbol: str,
+        days: int,
+        interval,
+        callback,
+        use_database: bool):
+        pass
 
     def load_data(self):
         """"""
@@ -209,11 +202,10 @@ class BacktestingEngine:
             self.output("起始日期必须小于结束日期")
             return
 
-        self.history_data_dom.clear()       # Clear previously loaded history data
-        self.history_data_sub.clear()
+        self.history_data.clear()       # Clear previously loaded history data
 
         # 每次循环读一天，时间向后递推1秒，再读下一天
-        progress_delta = timedelta(days=1)
+        progress_delta = timedelta(hours=8)
         total_delta = self.end - self.start
         interval_delta = timedelta(seconds=1)
 
@@ -224,10 +216,8 @@ class BacktestingEngine:
         while start < self.end:
             end = min(end, self.end)  # Make sure end time stays within set range
 
-            data_dom = load_tick_data(self.symbol_dom, self.exchange, start, end, self.symbol_dom)
-            self.history_data_dom.extend(data_dom)
-            data_sub = load_tick_data(self.symbol_sub, self.exchange, start, end, self.symbol_sub)
-            self.history_data_sub.extend(data_sub)
+            data = load_tick_data(self.symbol, self.exchange, start, end, self.symbol)
+            self.history_data.extend(data)
 
             progress += progress_delta / total_delta
             progress = min(progress, 1)
@@ -237,7 +227,7 @@ class BacktestingEngine:
             start = end + interval_delta
             end += (progress_delta + interval_delta)
 
-        self.output(f"历史数据加载完成，{self.symbol_dom}数据量：{len(self.history_data_dom)}，{self.symbol_sub}数据量{len(self.history_data_sub)}")
+        self.output(f"历史数据加载完成，{self.symbol}数据量：{len(self.history_data)}")
 
     def run_backtesting(self):
 
@@ -249,52 +239,18 @@ class BacktestingEngine:
         self.strategy.trading = True
         self.output("开始回放历史数据")
 
-        data_dom_index = 0
-        data_sub_index = 0
-        while data_dom_index < len(self.history_data_dom) or data_sub_index < len(self.history_data_sub):
-            # dom已经全部回放完毕
-            if data_dom_index >= len(self.history_data_dom):
-                data_sub = self.history_data_sub[data_sub_index]
-                try:
-                    self.new_tick(data_sub)
-                    data_sub_index += 1
-                    continue
-                except Exception:
-                    self.output("推送tick时触发异常，回测终止")
-                    self.output(traceback.format_exc())
-                    return
-            # sub已经回放完毕
-            if data_sub_index >= len(self.history_data_sub):
-                data_dom = self.history_data_dom[data_dom_index]
-                try:
-                    self.new_tick(data_dom)
-                    data_dom_index += 1
-                    continue
-                except Exception:
-                    self.output("推送tick时触发异常，回测终止")
-                    self.output(traceback.format_exc())
-                    return
-            data_dom = self.history_data_dom[data_dom_index]
-            data_sub = self.history_data_sub[data_sub_index]
-            # 按时间顺序先推先到的
-            # 行情产生时间一样，实盘按字母顺序
-            if data_dom.datetime > data_sub.datetime:
-                try:
-                    self.new_tick(data_sub)
-                    data_sub_index += 1
-                except Exception:
-                    self.output("推送tick时触发异常，回测终止")
-                    self.output(traceback.format_exc())
-                    return
-            # elif data_dom.datetime <= data_sub.datetime:
-            else:
-                try:
-                    self.new_tick(data_dom)
-                    data_dom_index += 1
-                except Exception:
-                    self.output("推送tick时触发异常，回测终止")
-                    self.output(traceback.format_exc())
-                    return
+        data_index = 0
+        while data_index < len(self.history_data):
+            
+            data = self.history_data[data_index]
+
+            try:
+                self.new_tick(data)
+                data_index += 1
+            except Exception:
+                self.output("推送tick时触发异常，回测终止")
+                self.output(traceback.format_exc())
+                return
 
         self.output("历史数据回放结束")
         self.output(f"见价成交数量：{self.price_trade_count}  排队成交数量：{self.volume_trade_count}")
@@ -641,7 +597,7 @@ class BacktestingEngine:
                 target_name,
                 self.strategy_class,
                 setting,
-                self.vt_symbols,
+                self.vt_symbol,
                 self.start,
                 self.rate,
                 self.slippage,
@@ -666,128 +622,6 @@ class BacktestingEngine:
 
         return result_values
 
-    def run_ga_optimization(self, optimization_setting: OptimizationSetting, population_size=100, ngen_size=30, output=True):
-        """"""
-        # Get optimization setting and target
-        settings = optimization_setting.generate_setting_ga()
-        target_name = optimization_setting.target_name
-
-        if not settings:
-            self.output("优化参数组合为空，请检查")
-            return
-
-        if not target_name:
-            self.output("优化目标未设置，请检查")
-            return
-
-        # Define parameter generation function
-        def generate_parameter():
-            """"""
-            return random.choice(settings)
-
-        def mutate_individual(individual, indpb):
-            """"""
-            size = len(individual)
-            paramlist = generate_parameter()
-            for i in range(size):
-                if random.random() < indpb:
-                    individual[i] = paramlist[i]
-            return individual,
-
-        # Create ga object function
-        global ga_target_name
-        global ga_strategy_class
-        global ga_setting
-        global ga_vt_symbols
-        global ga_start
-        global ga_rate
-        global ga_slippage
-        global ga_size
-        global ga_pricetick
-        global ga_capital
-        global ga_end
-
-        ga_target_name = target_name
-        ga_strategy_class = self.strategy_class
-        ga_setting = settings[0]
-        ga_vt_symbols = self.vt_symbols
-        ga_start = self.start
-        ga_rate = self.rate
-        ga_slippage = self.slippage
-        ga_size = self.size
-        ga_pricetick = self.pricetick
-        ga_capital = self.capital
-        ga_end = self.end
-
-        # Set up genetic algorithem
-        toolbox = base.Toolbox()
-        toolbox.register("individual", tools.initIterate, creator.Individual, generate_parameter)
-        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-        toolbox.register("mate", tools.cxTwoPoint)
-        toolbox.register("mutate", mutate_individual, indpb=1)
-        toolbox.register("evaluate", ga_optimize)
-        toolbox.register("select", tools.selNSGA2)
-
-        total_size = len(settings)
-        pop_size = population_size                      # number of individuals in each generation
-        lambda_ = pop_size                              # number of children to produce at each generation
-        mu = int(pop_size * 0.8)                        # number of individuals to select for the next generation
-
-        cxpb = 0.95         # probability that an offspring is produced by crossover
-        mutpb = 1 - cxpb    # probability that an offspring is produced by mutation
-        ngen = ngen_size    # number of generation
-
-        pop = toolbox.population(pop_size)
-        hof = tools.ParetoFront()               # end result of pareto front
-
-        stats = tools.Statistics(lambda ind: ind.fitness.values)
-        np.set_printoptions(suppress=True)
-        stats.register("mean", np.mean, axis=0)
-        stats.register("std", np.std, axis=0)
-        stats.register("min", np.min, axis=0)
-        stats.register("max", np.max, axis=0)
-
-        # Multiprocessing is not supported yet.
-        # pool = multiprocessing.Pool(multiprocessing.cpu_count())
-        # toolbox.register("map", pool.map)
-
-        # Run ga optimization
-        self.output(f"参数优化空间：{total_size}")
-        self.output(f"每代族群总数：{pop_size}")
-        self.output(f"优良筛选个数：{mu}")
-        self.output(f"迭代次数：{ngen}")
-        self.output(f"交叉概率：{cxpb:.0%}")
-        self.output(f"突变概率：{mutpb:.0%}")
-
-        start = time()
-
-        algorithms.eaMuPlusLambda(
-            pop,
-            toolbox,
-            mu,
-            lambda_,
-            cxpb,
-            mutpb,
-            ngen,
-            stats,
-            halloffame=hof
-        )
-
-        end = time()
-        cost = int((end - start))
-
-        self.output(f"遗传算法优化完成，耗时{cost}秒")
-
-        # Return result list
-        results = []
-
-        for parameter_values in hof:
-            setting = dict(parameter_values)
-            target_value = ga_optimize(parameter_values)[0]
-            results.append((setting, target_value, {}))
-
-        return results
-
     def update_daily_close(self, price: float):
         """"""
         d = self.datetime.date()
@@ -800,6 +634,8 @@ class BacktestingEngine:
 
     def new_tick(self, tick: TickData):
         """"""
+        if self.tick:
+            self.last_tick[self.tick.vt_symbol] = self.tick
         self.tick = tick
         self.datetime = tick.datetime
 
@@ -810,12 +646,14 @@ class BacktestingEngine:
     # 估计两边盘口的成交量
     def calc_tick_volume(self, tick, lasttick, size):
         """计算两边盘口的成交量"""
+        if not tick.turnover:
+            return 0.0, 0.0
         currentVolume = tick.volume - lasttick.volume
         currentTurnOver = tick.turnover - lasttick.turnover
         pOnAsk = lasttick.ask_price_1
         pOnBid = lasttick.bid_price_1
 
-        if lasttick and currentVolume > 0: 
+        if lasttick and currentVolume > 0 and self.use_que: 
             avgPrice = currentTurnOver / currentVolume / size
             ratio = (avgPrice - pOnBid) / (pOnAsk - pOnBid)
             ratio = max(ratio, 0)
@@ -828,124 +666,102 @@ class BacktestingEngine:
 
         return volOnBid, volOnAsk
 
+    # 获得订单价格对应的盘口挂单量
+    def get_vol_form_orderbook(self, order: OrderData, tick: TickData):
+        if not self.use_que:
+            return QUEUE_INIT
+        if order.direction == Direction.LONG:
+            if order.price == tick.bid_price_1:
+                return tick.bid_volume_1
+            elif order.price == tick.bid_price_2:
+                return tick.bid_volume_2
+            elif order.price == tick.bid_price_3:
+                return tick.bid_volume_3
+            elif order.price == tick.bid_price_4:
+                return tick.bid_volume_4
+            elif order.price == tick.bid_price_5:
+                return tick.bid_volume_5
+            else:
+                return QUEUE_INIT
+        else:
+            if order.price == tick.ask_price_1:
+                return tick.ask_volume_1
+            elif order.price == tick.ask_price_2:
+                return tick.ask_volume_2
+            elif order.price == tick.ask_price_3:
+                return tick.ask_volume_3
+            elif order.price == tick.ask_price_4:
+                return tick.ask_volume_4
+            elif order.price == tick.ask_price_5:
+                return tick.ask_volume_5
+            else:
+                return QUEUE_INIT
+
     # 考虑限价单排队
     def cross_limit_order(self):
         """
         Cross limit order with last bar/tick data.
         """
-        long_best_price = self.tick.ask_price_1
-        short_best_price = self.tick.bid_price_1
-
+        trade_price = 0.0
+        trade_vol = 0.0
+        
         for order in list(self.active_limit_orders.values()):
             if order.vt_symbol != self.tick.vt_symbol:
                 continue
-            # Push order update with status "not traded" (pending).
+
+            order_wait_vol = order.volume - order.traded
             if order.status == Status.SUBMITTING:
                 order.status = Status.NOTTRADED
-                #self.strategy.on_order(order)
-                self.strategy.update_order(order)
 
-            # Check whether limit orders can be filled.
-            # 检查价格(见价成交)
-            long_cross = (
-                order.direction == Direction.LONG
-                and self.tick.ask_price_1 > 0
-                and order.price > self.tick.bid_price_1
-            )
+                self.queue_num_map[order.vt_orderid] = self.get_vol_form_orderbook(order, self.tick) - order_wait_vol
+                self.strategy.on_order(order)
+                #self.strategy.update_order(order)
 
-            short_cross = (
-                order.direction == Direction.SHORT
-                and self.tick.bid_price_1 > 0
-                and order.price < self.tick.ask_price_1
-            )
-            long_que = False
-            short_que = False
+            queue_num = self.queue_num_map[order.vt_orderid]
 
-            # 见价成交无法成交
-            if not long_cross and not short_cross:
-                # 检查限价单队列（认为排在你之前的人都不撤单）
-                # 从未计算排队位置的新订单
-                if self.limit_que[order.vt_orderid] == LQ:
-                    if order.direction == Direction.LONG:
-                        # 从五档里匹配对应价格的排队位置
-                        if self.tick.bid_price_1 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_1
-                        elif self.tick.bid_price_2 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_2
-                        elif self.tick.bid_price_3 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_3
-                        elif self.tick.bid_price_4 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_4
-                        elif self.tick.bid_price_5 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.bid_volume_5
-                    if order.direction == Direction.SHORT:
-                        if self.tick.ask_price_1 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_1
-                        elif self.tick.ask_price_2 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_2
-                        elif self.tick.ask_price_3 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_3
-                        elif self.tick.ask_price_4 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_4
-                        elif self.tick.ask_price_5 == order.price:
-                            self.limit_que[order.vt_orderid] = self.tick.ask_volume_5
-                    # 记录当前tick，用于更新排队位置
-                    self.limit_que_last_tick[order.vt_orderid] = self.tick
-                # 已经在排队的老订单更新排队位置
-                elif self.limit_que[order.vt_orderid] > 0:
-                    # 只有订单在一档了才更新（认为进入一档后，你之前的人都不撤单）
-                    if order.direction == Direction.LONG and self.tick.bid_price_1 == order.price:
-                        # 订单首次到达一档或再次到达一档
-                        if self.limit_que_last_tick[order.vt_orderid].bid_price_1 != order.price:
-                            # 处理进入一档队列最差位置仍然优于之前的情况
-                            self.limit_que[order.vt_orderid] = min(self.limit_que[order.vt_orderid], self.tick.bid_volume_1)
-                        # 连续在一档排队
-                        else:
-                            # 一档买卖成交量
-                            bid_v, ask_v = self.calc_tick_volume(self.tick, self.limit_que_last_tick[order.vt_orderid], self.size)
-                            # 更新排队位置
-                            self.limit_que[order.vt_orderid] -= bid_v
-                    if order.direction == Direction.SHORT and self.tick.ask_price_1 == order.price:
-                        if self.limit_que_last_tick[order.vt_orderid].ask_price_1 != order.price:
-                            self.limit_que[order.vt_orderid] = min(self.limit_que[order.vt_orderid], self.tick.ask_volume_1)
-                        else:
-                            bid_v, ask_v = self.calc_tick_volume(self.tick, self.limit_que_last_tick[order.vt_orderid], self.size)
-                            self.limit_que[order.vt_orderid] -= ask_v
-                    # 记录并判断
-                    self.limit_que_last_tick[order.vt_orderid] = self.tick
-                    long_que = (order.direction == Direction.LONG and self.limit_que[order.vt_orderid] <= 0)
-                    short_que = (order.direction == Direction.SHORT and self.limit_que[order.vt_orderid] <= 0)
-                else:
-                    long_que = (order.direction == Direction.LONG and self.limit_que[order.vt_orderid] <= 0)
-                    short_que = (order.direction == Direction.SHORT and self.limit_que[order.vt_orderid] <= 0)
-                
-                # 排队被动成交也无法成交
-                if not long_que and not short_que: 
-                    continue
-                else:
-                    print("排队成交")
-                    self.volume_trade_count += 1
-            else:
-                print("见价成交")
+            # 没有出现在订单簿上（这时已经是下一个tick），认为已经成交
+            if order.direction == Direction.LONG and order.price >= self.tick.bid_price_1:
+                trade_price = min(order.price, self.tick.ask_price_1)
+                trade_vol = order_wait_vol
+                #print("见价成交")
                 self.price_trade_count += 1
-        
-            # Push order udpate with status "all traded" (filled).
-            order.traded = order.volume
-            order.status = Status.ALLTRADED
-            #self.strategy.on_order(order)
-            self.strategy.update_order(order)
+            elif order.direction == Direction.SHORT and order.price <= self.tick.ask_price_1:
+                trade_price = max(order.price, self.tick.bid_price_1)
+                trade_vol = order_wait_vol
+                #print("见价成交")
+                self.price_trade_count += 1
+            else:
+                if not self.use_que:
+                    continue
+                # 排队情况
+                if queue_num > 0:
+                    # 获取该订单价格在订单簿上的挂单量，考虑自身长度
+                    new_queue_num_head = self.get_vol_form_orderbook(order, self.tick) - order_wait_vol
+                    new_queue_num_head = min(new_queue_num_head, queue_num)
+                    # 获取时间间隔内的成交情况
+                    b, a = self.calc_tick_volume(self.tick, self.last_tick[order.vt_symbol], self.size)
+                    # 连续在一档，才可能将位置更新到：当前位置 - 期间一档成交
+                    if order.direction == Direction.LONG and self.tick.bid_price_1 == order.price and self.last_tick[order.vt_symbol].bid_price_1 == order.price:
+                        new_queue_num_head = min(new_queue_num_head, queue_num - b)
+                    if order.direction == Direction.SHORT and self.tick.ask_price_1 == order.price and self.last_tick[order.vt_symbol].ask_price_1 == order.price:
+                        new_queue_num_head = min(new_queue_num_head, queue_num - a)
+                    # 还没排到
+                    if new_queue_num_head > 0:
+                        self.queue_num_map[order.vt_orderid] = new_queue_num_head
+                        continue
+                    else:
+                        # 计算成交量
+                        self.queue_num_map[order.vt_orderid] = 1
+                        trade_vol = 1-new_queue_num_head
+                        trade_price = order.price
+                        print("排队成交")
+                        self.volume_trade_count += 1
+                else:
+                    # 不应该出现这种情况
+                    print("请检查排队撮合逻辑")
 
-            self.active_limit_orders.pop(order.vt_orderid)
-            self.limit_que.pop(order.vt_orderid)
-            self.limit_que_last_tick.pop(order.vt_orderid)
-
-            # Push trade update
+            # 生成成交数据
             self.trade_count += 1
-
-            if long_cross or long_que:
-                trade_price = min(order.price, long_best_price)
-            elif short_cross or short_que:
-                trade_price = max(order.price, short_best_price)
 
             trade = TradeData(
                 symbol=order.symbol,
@@ -955,35 +771,44 @@ class BacktestingEngine:
                 direction=order.direction,
                 offset=order.offset,
                 price=trade_price,
-                volume=order.volume,
+                volume=trade_vol,
                 datetime=self.datetime,
                 gateway_name=self.gateway_name,
             )
 
-            self.strategy.update_trade(trade)
-            self.strategy.on_trade(trade)
+            order.traded += trade_vol
 
+            # 全成还是部成
+            if order.traded >= order.volume:
+                order.status = Status.ALLTRADED
+                self.active_limit_orders.pop(order.vt_orderid)
+                self.queue_num_map.pop(order.vt_orderid)
+            else:
+                order.status = Status.PARTTRADED
+
+            self.strategy.on_order(order)
+            # self.strategy.update_order(order)
+            # self.strategy.update_trade(trade)
+            self.strategy.on_trade(trade)
             self.trades[trade.vt_tradeid] = trade
 
     def send_order(
         self,
-        strategy: StrategyTemplate,
-        vt_symbol: str,
+        strategy: CtaTemplate,
         direction: Direction,
         offset: Offset,
         price: float,
         volume: float,
+        stop: bool,
         lock: bool
     ):
         """"""
         price = round_to(price, self.pricetick)
-        symbol = vt_symbol.split(".")[0]
-        vt_orderid = self.send_limit_order(symbol, direction, offset, price, volume)
+        vt_orderid = self.send_limit_order(direction, offset, price, volume)
         return [vt_orderid]
 
     def send_limit_order(
         self,
-        symbol: str,
         direction: Direction,
         offset: Offset,
         price: float,
@@ -993,7 +818,7 @@ class BacktestingEngine:
         self.limit_order_count += 1
 
         order = OrderData(
-            symbol=symbol,
+            symbol=self.symbol,
             exchange=self.exchange,
             orderid=str(self.limit_order_count),
             direction=direction,
@@ -1007,31 +832,35 @@ class BacktestingEngine:
 
         self.active_limit_orders[order.vt_orderid] = order
         self.limit_orders[order.vt_orderid] = order
-        self.limit_que[order.vt_orderid] = LQ
-        self.limit_que_last_tick[order.vt_orderid] = LQ
+        self.queue_num_map[order.vt_orderid] = QUEUE_INIT
 
         return order.vt_orderid
 
-    def cancel_order(self, strategy: StrategyTemplate, vt_orderid: str):
+    def cancel_order(self, strategy: CtaTemplate, vt_orderid: str):
         """"""
         if vt_orderid not in self.active_limit_orders:
             return
         order = self.active_limit_orders.pop(vt_orderid)
-        self.limit_que.pop(vt_orderid)
-        self.limit_que_last_tick.pop(vt_orderid)
+        self.queue_num_map.pop(vt_orderid)
 
         order.status = Status.CANCELLED
-        #self.strategy.on_order(order)
-        self.strategy.update_order(order)
+        self.strategy.on_order(order)
+        #self.strategy.update_order(order)
+    
+    def cancel_all(self, strategy: CtaTemplate):
+        """"""
+        vt_orderids = list(self.active_limit_orders.keys())
+        for vt_orderid in vt_orderids:
+            self.cancel_order(strategy, vt_orderid)
 
-    def write_log(self, msg: str, strategy: StrategyTemplate = None):
+    def write_log(self, msg: str, strategy: CtaTemplate = None):
         """
         Write log message.
         """
         msg = f"{self.datetime}\t{msg}"
         self.logs.append(msg)
 
-    def put_strategy_event(self, strategy: StrategyTemplate):
+    def put_strategy_event(self, strategy: CtaTemplate):
         """
         Put an event to update strategy status.
         """
@@ -1064,7 +893,6 @@ class BacktestingEngine:
 
 class DailyResult:
     """"""
-
     def __init__(self, date: date, close_price: float):
         """"""
         self.date = date
@@ -1152,9 +980,9 @@ class DailyResult:
 
 def optimize(
     target_name: str,
-    strategy_class: StrategyTemplate,
+    strategy_class: CtaTemplate,
     setting: dict,
-    vt_symbols,
+    vt_symbol,
     start: datetime,
     rate: float,
     slippage: float,
@@ -1169,7 +997,7 @@ def optimize(
     engine = BacktestingEngine()
 
     engine.set_parameters(
-        vt_symbols=vt_symbols,
+        vt_symbol=vt_symbol,
         start=start,
         rate=rate,
         slippage=slippage,
@@ -1189,31 +1017,6 @@ def optimize(
     return (str(setting), target_value, statistics, result_df)
 
 
-@lru_cache(maxsize=1000000)
-def _ga_optimize(parameter_values: tuple):
-    """"""
-    setting = dict(parameter_values)
-
-    result = optimize(
-        ga_target_name,
-        ga_strategy_class,
-        setting,
-        ga_vt_symbols,
-        ga_start,
-        ga_rate,
-        ga_slippage,
-        ga_size,
-        ga_pricetick,
-        ga_capital,
-        ga_end
-    )
-    return (result[1],)
-
-
-def ga_optimize(parameter_values: list):
-    """"""
-    return _ga_optimize(tuple(parameter_values))
-
 @lru_cache(maxsize=999)
 def load_tick_data(
     symbol: str,
@@ -1226,17 +1029,3 @@ def load_tick_data(
     return database_manager.load_tick_data(
         symbol, exchange, start, end, collection_name
     )
-
-
-# GA related global value
-ga_end = None
-ga_target_name = None
-ga_strategy_class = None
-ga_setting = None
-ga_vt_symbols = None
-ga_start = None
-ga_rate = None
-ga_slippage = None
-ga_size = None
-ga_pricetick = None
-ga_capital = None
